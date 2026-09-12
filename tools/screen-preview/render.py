@@ -33,11 +33,15 @@ def main(ops_path, outdir):
             d.rectangle([0, 0, W * S, H * S], fill=rgb(p[1]))
         elif op == "RECT":
             x, y, w, h, c, fill = int(p[1]), int(p[2]), int(p[3]), int(p[4]), p[5], p[6] == "1"
+            if w <= 0 or h <= 0:
+                continue          # Adafruit_GFX ไม่วาดอะไรเลยเมื่อกว้าง/สูงเป็น 0 หรือติดลบ
             box = [x * S, y * S, (x + w) * S - 1, (y + h) * S - 1]
             if fill: d.rectangle(box, fill=rgb(c))
             else:    d.rectangle(box, outline=rgb(c), width=S)
         elif op == "RRECT":
             x, y, w, h, r, c, fill = int(p[1]), int(p[2]), int(p[3]), int(p[4]), int(p[5]), p[6], p[7] == "1"
+            if w <= 0 or h <= 0:
+                continue
             box = [x * S, y * S, (x + w) * S - 1, (y + h) * S - 1]
             if fill: d.rounded_rectangle(box, radius=r * S, fill=rgb(c))
             else:    d.rounded_rectangle(box, radius=r * S, outline=rgb(c), width=S)

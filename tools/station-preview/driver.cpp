@@ -13,7 +13,18 @@ void delay(unsigned long ms){ g_millis += ms; }
 void delayMicroseconds(unsigned long us){ g_millis += us/1000; }
 void pinMode(int,int){} void digitalWrite(int,int){}
 int g_adc = 2731;
-int analogRead(int){ return g_adc; }
+bool g_simSensor = false;      // true = จำลองสัญญาณเซนเซอร์ IR จริง (ใช้ตอนเรนเดอร์หน้าคาลิเบรต)
+bool g_simDrops  = true;       // false = ช่วงที่บอกผู้ใช้ว่า "อย่าให้มีหยด"
+int analogRead(int){
+  if (!g_simSensor) return g_adc;
+  // เส้นฐาน 2700, สัญญาณรบกวนยอดถึงยอด ~36, พัลส์หยดทุก 900 ms กว้าง 12 ms ลึก 220
+  int v = 2700 + ((int)((g_millis * 37) % 13) - 6) * 3;
+  if (g_simDrops) {
+    unsigned long t = g_millis % 900;
+    if (t < 12) v -= (int)(220.0f * sinf(3.14159f * (float)t / 12.0f));
+  }
+  return v;
+}
 void analogReadResolution(int){} void analogSetAttenuation(adc_attenuation_t){}
 void tone(int,unsigned int,unsigned long){} void noTone(int){}
 void randomSeed(unsigned long){} long random(long m){return 0;} long random(long a,long){return a;}
@@ -31,7 +42,7 @@ void emitMark(const char* n){ fprintf(g_ops,"MARK %s\n",n); }
 // อ่านขาแบบจำลอง (นิยามหลัง include เพื่อให้เห็นค่า BTN_PIN / DROP_DO_PIN จากสเก็ตช์)
 //  g_btnScript > 0  = ยังไม่กดปุ่ม (นับถอยหลังทีละครั้งที่อ่าน)
 //  g_btnScript == 0 = กด 1 ครั้ง แล้วปล่อยค้างเป็น HIGH ต่อไป
-int g_btnScript  = 0;
+int g_btnScript  = -1;   // -1 = ปุ่มปล่อยอยู่ตลอด (ตั้งเป็นจำนวนรอบเมื่ออยากให้ "กด" ครั้งหนึ่ง)
 int g_dropLevel  = 0;     // ระดับสาย DO ของเซ็นเซอร์ (Active HIGH: 0 = ว่าง)
 int digitalRead(int pin) {
   if (pin == BTN_PIN) {
@@ -39,7 +50,9 @@ int digitalRead(int pin) {
     if (g_btnScript == 0) { g_btnScript = -1; return 0; }
     return 1;
   }
+#ifdef DROP_DO_PIN
   if (pin == DROP_DO_PIN) return g_dropLevel;
+#endif
   return 1;
 }
 int main(int argc,char** argv){
@@ -92,13 +105,28 @@ int main(int argc,char** argv){
   drawStationIdConfigFramework(); updateStationIdConfigDynamic(); emitMark("config_id");
   drawHoldProgressHUD(3600); emitMark("hold_hud");
 
-  // หน้าทดสอบเซ็นเซอร์: จำลองว่ากำลังมีหยดผ่าน (สาย DO = HIGH) และเคยจับพัลส์มาแล้ว
+#ifdef DROP_DO_PIN
+  // ---- เฟิร์มแวร์เซ็นเซอร์ดิจิทัล (v7.6.x): หน้าทดสอบเซ็นเซอร์ ----
   g_dropLevel = 1;
   dropIsrCount = 37;
   g_millis += 1000;
   g_btnScript = 200;                   // ค้างหน้าจอไว้ ~400 ms ก่อน "กดปุ่ม" ออก
   executeSensorTestScreen(); emitMark("sensor_test");
   g_dropLevel = 0;
+#endif
+
+#ifdef SCOPE_TOP
+  // ---- เฟิร์มแวร์เซ็นเซอร์อนาล็อก (v7.5.1): หน้าคาลิเบรต 3 ขั้น + ตรวจสอบ ----
+  // เรียกทีละขั้นเพื่อเก็บภาพแต่ละหน้า (ไม่กดปุ่ม ปล่อยให้แต่ละขั้นจบเองตามเวลา)
+  g_simSensor = true;
+  g_simDrops  = false;                 // ขั้นที่ 1 บอกผู้ใช้ว่าอย่าให้มีหยด
+  calStepNoise();  emitMark("cal_1_noise");
+  g_simDrops  = true;
+  calStepLearn();  emitMark("cal_2_learn");
+  calFinish();     emitMark("cal_3_result");
+  calVerify();     emitMark("cal_4_verify");
+  g_simSensor = false;
+#endif
   fclose(g_ops);
   return 0;
 }
