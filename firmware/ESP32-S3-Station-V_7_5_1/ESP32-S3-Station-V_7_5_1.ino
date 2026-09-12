@@ -123,8 +123,9 @@
 #define BASELINE_STEP_DIV       1024   // ยิ่งมากเส้นฐานยิ่งไล่ตามช้า (~0.5 วินาทีที่ 2 kHz)
 #define NOISE_WINDOW_MS         1000   // คาบวัดสัญญาณรบกวนยอดถึงยอด
 #define DROP_MIN_WIDTH_MS       2      // พัลส์แคบกว่านี้ = สัญญาณรบกวน ไม่ใช่หยด
-#define DROP_MAX_WIDTH_MS       150    // กว้างกว่านี้ = ระดับน้ำเปลี่ยน/มีอะไรบัง ไม่ใช่หยด
+#define DROP_MAX_WIDTH_MS       250    // กว้างกว่านี้ = ระดับน้ำเปลี่ยน/มีอะไรบัง ไม่ใช่หยด
 #define DROP_REARM_MS           20     // ต้องกลับมานิ่งใต้เกณฑ์ปลดเท่านี้ ก่อนรับหยดถัดไป
+#define DROP_REARM_TIMEOUT_MS   300    // กันค้าง: อยู่ในช่วงรอนิ่งนานเกินนี้ = ยึดเส้นฐานใหม่
 
 #define CAL_DEFAULT_TRIGGER     120    // ใช้เมื่อยังไม่เคยคาลิเบรต
 #define CAL_MIN_TRIGGER         18
@@ -602,10 +603,20 @@ int  noiseMin = 4095, noiseMax = 0;
 unsigned long noiseWindowStart = 0;
 
 DropPhase dropPhase       = DP_IDLE;
-unsigned long dropPhaseMs = 0;
+unsigned long dropPhaseMs = 0;    // เวลาที่เข้าเฟสปัจจุบัน
+unsigned long dropSettleMs = 0;   // ครั้งล่าสุดที่สัญญาณนิ่งใต้เกณฑ์ปลด
+uint32_t baselineRecovers = 0;    // จำนวนครั้งที่ต้องยึดเส้นฐานใหม่เพราะระดับเลื่อนค้าง
 int  dropPeakDelta        = 0;
 uint32_t lastSampleUs     = 0;
 uint32_t rejectedPulses   = 0;    // พัลส์ที่คัดทิ้ง (แคบหรือกว้างผิดปกติ)
+
+// อ่านหลายครั้งแล้วเฉลี่ย ใช้ตั้งเส้นฐานตอนเริ่ม เพื่อไม่ให้ตัวอย่างเดียวที่บังเอิญ
+// ตกบนยอดสัญญาณรบกวนกลายเป็นเส้นฐานที่เพี้ยนไปทั้งรอบ
+int readSensorAverage(int n) {
+  long sum = 0;
+  for (int i = 0; i < n; i++) { sum += analogRead(SENSOR_AO_PIN); delayMicroseconds(200); }
+  return (int)(sum / n);
+}
 
 void resetSignalChain(int seed) {
   for (int i = 0; i < SENSOR_MEDIAN_N; i++) medBuf[i] = seed;
@@ -616,6 +627,7 @@ void resetSignalChain(int seed) {
   sensorDelta = 0;
   dropPhase = DP_REARM;
   dropPhaseMs = millis();
+  dropSettleMs = dropPhaseMs;
   dropPeakDelta = 0;
   noiseMin = seed; noiseMax = seed;
   noiseWindowStart = millis();
@@ -692,11 +704,16 @@ bool serviceDropSensor(bool countDrops) {
   unsigned long nowMs = millis();
   bool completed = false;
 
-  // เส้นฐานไล่ตามการดริฟต์ (อุณหภูมิ/แสงรอบข้าง/แรงดันไฟ) เฉพาะตอนไม่มีพัลส์
-  if (dropPhase == DP_IDLE) {
-    baselineAcc += ((long)sensorFiltered * 256 - baselineAcc) / BASELINE_STEP_DIV;
+  // เส้นฐานไล่ตามการดริฟต์ (อุณหภูมิ/แสงรอบข้าง/แรงดันไฟ)
+  // ต้องไล่ตามทั้งในเฟสเฝ้าดูและเฟสรอนิ่ง หยุดเฉพาะตอนที่พัลส์กำลังดำเนินอยู่เท่านั้น
+  // (ถ้าหยุดตามในเฟสรอนิ่งด้วย ระดับที่ไหลไปเรื่อย ๆ จะดันให้ค้างอยู่ในเฟสนั้นตลอดไป)
+  if (dropPhase != DP_ACTIVE) {
+    long step = BASELINE_STEP_DIV;
+    if (dropPhase == DP_REARM && sensorDelta > dropReleaseDelta)
+      step = BASELINE_STEP_DIV / 4;                    // ค้างเหนือเกณฑ์ปลด -> ดึงกลับเร็วขึ้น
+    baselineAcc += ((long)sensorFiltered * 256 - baselineAcc) / step;
 
-    if (abs(sensorDelta) < dropTriggerDelta / 2) {     // วัดสัญญาณรบกวนจากช่วงที่สงบจริง ๆ
+    if (dropPhase == DP_IDLE && abs(sensorDelta) < dropTriggerDelta / 2) {  // วัดสัญญาณรบกวนจากช่วงที่สงบจริง ๆ
       if (sensorFiltered < noiseMin) noiseMin = sensorFiltered;
       if (sensorFiltered > noiseMax) noiseMax = sensorFiltered;
     }
@@ -732,13 +749,14 @@ bool serviceDropSensor(bool countDrops) {
         }
         dropPhase = DP_REARM;
         dropPhaseMs = nowMs;
+        dropSettleMs = nowMs;
       }
       else if (width > DROP_MAX_WIDTH_MS) {
         // ค้างนานผิดปกติ = ไม่ใช่หยด (ระดับน้ำเปลี่ยน / มีอะไรบังลำแสง)
-        // ไม่นับ แล้วปล่อยให้เส้นฐานไล่ตามค่าที่ค้าง เพื่อกลับมาตรวจจับได้เอง
         rejectedPulses++;
         dropPhase = DP_REARM;
         dropPhaseMs = nowMs;
+        dropSettleMs = nowMs;
       }
       break;
     }
@@ -747,10 +765,20 @@ bool serviceDropSensor(bool countDrops) {
       // ต้องกลับมานิ่งใต้เกณฑ์ปลดต่อเนื่องครบเวลา จึงจะรับพัลส์ถัดไป
       // นี่คือส่วนที่ทำให้ "กดสวิตช์แล้วลั่น" หายไป
       if (sensorDelta > dropReleaseDelta) {
-        dropPhaseMs = nowMs;
-        baselineAcc += ((long)sensorFiltered * 256 - baselineAcc) / (BASELINE_STEP_DIV * 4);
-      } else if (nowMs - dropPhaseMs >= DROP_REARM_MS) {
+        dropSettleMs = nowMs;                          // ยังไม่นิ่ง เริ่มจับเวลานิ่งใหม่
+      } else if (nowMs - dropSettleMs >= DROP_REARM_MS) {
         dropPhase = DP_IDLE;
+      }
+
+      // ทางออกกันค้าง: ถ้าอยู่ในเฟสนี้นานเกินไปแปลว่าระดับสัญญาณเลื่อนไปจริง ๆ
+      // (เซนเซอร์ขยับ ไฟตก แสงรอบข้างเปลี่ยน หรือเส้นฐานตอนเริ่มเพี้ยน)
+      // ถ้าไม่ยึดเส้นฐานใหม่ตรงนี้ เครื่องจะค้างอยู่ในเฟสนี้ตลอดไปและจะไม่นับหยดอีกเลย
+      if (nowMs - dropPhaseMs >= DROP_REARM_TIMEOUT_MS) {
+        baselineAcc = (long)sensorFiltered * 256;
+        sensorBaseline = sensorFiltered;
+        sensorDelta = 0;
+        dropPhase = DP_IDLE;
+        baselineRecovers++;
       }
       break;
   }
@@ -932,7 +960,7 @@ bool calStepNoise() {
   dropTriggerDelta = 4000;            // ปิดการจับพัลส์ชั่วคราว ให้วัดเฉพาะสัญญาณรบกวน
   dropReleaseDelta = 3999;
   scopeFixedFull = 120;               // ซูมให้เห็นย่านสัญญาณรบกวนชัด ๆ
-  resetSignalChain(analogRead(SENSOR_AO_PIN));
+  resetSignalChain(readSensorAverage(16));
 
   int wMin = 4095, wMax = 0;
   unsigned long start = millis();
@@ -995,7 +1023,7 @@ bool calStepLearn() {
 
   // ---- เดาทิศสัญญาณ: ดูว่าค่าเบนออกจากเส้นฐานไปทางไหนแรงกว่ากัน ----
   dropPolarity = -1;
-  resetSignalChain(analogRead(SENSOR_AO_PIN));
+  resetSignalChain(readSensorAverage(16));
   int excDown = 0, excUp = 0;
   unsigned long polStart = millis();
   unsigned long lastDraw = 0;
@@ -1017,7 +1045,7 @@ bool calStepLearn() {
     delay(1);
   }
   if (excUp > excDown) dropPolarity = 1;
-  resetSignalChain(analogRead(SENSOR_AO_PIN));
+  resetSignalChain(readSensorAverage(16));
   scopeReset();
   calRow(172, "SIGNAL", (dropPolarity < 0) ? "drop = LOWER" : "drop = HIGHER", COLOR_WHITE);
 
@@ -1044,8 +1072,10 @@ bool calStepLearn() {
              (calCount >= CAL_MIN_DROPS) ? COLOR_GREEN : COLOR_YELLOW);
       calRow(208, "LAST PK", String(lastDropPeak) + " adc", COLOR_WHITE);
       calRow(226, "LAST W", String(lastDropWidthMs) + " ms", COLOR_WHITE);
-      calRow(244, "REJECT", String(rejectedPulses), rejectedPulses ? COLOR_ORANGE : UI_DIM);
-      calRow(262, "LIVE", String(sensorDelta), THEME_SKYBLUE);
+      calRow(244, "REJECT", String(rejectedPulses) + "  RE " + String(baselineRecovers),
+             (rejectedPulses || baselineRecovers) ? COLOR_ORANGE : UI_DIM);
+      const char* ph = (dropPhase == DP_IDLE) ? "WATCH" : (dropPhase == DP_ACTIVE) ? "PULSE" : "SETTLE";
+      calRow(262, ph, String(sensorDelta) + " / " + String(dropTriggerDelta), THEME_SKYBLUE);
     }
     calServiceBeep();
     delay(1);
@@ -1144,7 +1174,7 @@ void calVerify() {
   calHeader("VERIFY", "COUNT WITH YOUR EYES", "1 drop must add 1");
   drawCenteredString("CLICK = FINISH", 296, 1, UI_DIM, THEME_BG);
   scopeReset();
-  resetSignalChain(analogRead(SENSOR_AO_PIN));
+  resetSignalChain(readSensorAverage(16));
 
   uint32_t seen = 0;
   uint32_t rejBase = rejectedPulses;
@@ -1206,7 +1236,7 @@ void executeButtonCalibrationWizard() {
   buzzerBeepUntil = 0;
 
   // ระหว่างคาลิเบรตไม่ได้นับหยด -> อย่าให้ช่วงที่หายไปกลายเป็นสายพับหรือทำอัตราไหลเพี้ยน
-  resetSignalChain(analogRead(SENSOR_AO_PIN));
+  resetSignalChain(readSensorAverage(16));
   if (hasFirstDropOccurred) {
     lastDropTimestamp = millis();
     skipNextInterval = true;
@@ -2273,7 +2303,7 @@ void setup() {
 
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
-  resetSignalChain(analogRead(SENSOR_AO_PIN));
+  resetSignalChain(readSensorAverage(16));
 
   SPI_TFT.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
   tft.init(172, 320);
