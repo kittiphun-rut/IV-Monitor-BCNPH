@@ -627,6 +627,28 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
           </table>
         </div>
       </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>💾 ไฟล์บันทึกบนการ์ด SD (บันทึกต่อเนื่องทุกนาที ไม่หายแม้ปิดเครื่อง)</span>
+          <button class="btn btn-primary" style="width:auto; padding:9px 18px; font-size:14.5px;" onclick="fetchSdFiles()">🔄 รีเฟรชรายการ</button>
+        </div>
+        <div id="sdStatusLine" style="margin-bottom:12px; color: var(--text-muted); font-size:14.5px;">กำลังตรวจสอบการ์ด...</div>
+        <div class="table-container">
+          <table class="log-table">
+            <thead>
+              <tr>
+                <th>ชื่อไฟล์</th>
+                <th>ขนาด</th>
+                <th>ดาวน์โหลด</th>
+              </tr>
+            </thead>
+            <tbody id="sdFileTableBody">
+              <tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 22px;">กำลังอ่านรายการไฟล์...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <div id="tab-about" class="tab-content">
@@ -888,7 +910,7 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
       btnEl.classList.add('active');
 
       if (tabId === 'tab-graphs') renderGraphs();
-      else if (tabId === 'tab-logs') fetchLogs();
+      else if (tabId === 'tab-logs') { fetchLogs(); fetchSdFiles(); }
     }
 
     function changeBedScale(delta) {
@@ -1453,6 +1475,44 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
       window.location.href = `/api/logs/csv?station=${activeLogTab}`;
     }
 
+    // ----- ไฟล์บันทึกบนการ์ด SD -----
+    function sdSizeText(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1048576).toFixed(2) + ' MB';
+    }
+
+    function fetchSdFiles() {
+      fetch('/api/sd/list')
+        .then(r => r.json())
+        .then(d => {
+          const line = document.getElementById('sdStatusLine');
+          const tbody = document.getElementById('sdFileTableBody');
+          if (!d.present) {
+            line.innerHTML = '❌ ไม่พบการ์ด SD — เสียบการ์ดที่ช่องด้านหลังจอแล้วกดรีเฟรช (ระบบจะลองต่อใหม่ทุก 30 วินาที)';
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color: var(--text-muted); padding: 22px;">ไม่มีไฟล์</td></tr>';
+            return;
+          }
+          line.innerHTML = `✅ การ์ดพร้อมใช้งาน · บันทึกแล้ว ${d.rows} แถวตั้งแต่เปิดเครื่อง · ไฟล์ทั้งหมด ${d.files.length} ไฟล์ (โฟลเดอร์ /IVLOG)`;
+          if (!d.files.length) {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color: var(--text-muted); padding: 22px;">ยังไม่มีไฟล์บันทึก</td></tr>';
+            return;
+          }
+          d.files.sort((a, b) => b.name.localeCompare(a.name));
+          tbody.innerHTML = '';
+          for (const f of d.files) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+              <td>${f.name}</td>
+              <td>${sdSizeText(f.size)}</td>
+              <td><a class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13.5px; text-decoration:none; display:inline-block;" href="/api/sd/download?file=${encodeURIComponent(f.name)}">📥 ดาวน์โหลด</a></td>
+            `;
+            tbody.appendChild(row);
+          }
+        })
+        .catch(err => console.log(err));
+    }
+
     function openApModal() { document.getElementById('apModal').style.display = 'flex'; fetchApStatus(); }
     function closeApModal() { document.getElementById('apModal').style.display = 'none'; }
     function fetchApStatus() {
@@ -1502,7 +1562,8 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
           if (!data.timeSynced) timeNote = data.timeApprox ? ' (เวลาโดยประมาณ)' : ' (ยังไม่ตั้งเวลา)';
           document.getElementById('hostClockDisplay').innerText = data.currentTime + timeNote;
           document.getElementById('netStatusSubtitle').innerText =
-            `AP: 192.168.4.1 · CH ${data.channel} · อุปกรณ์ ${data.apClients}/${data.apMaxClients} เครื่อง`;
+            `AP: 192.168.4.1 · CH ${data.channel} · อุปกรณ์ ${data.apClients}/${data.apMaxClients} เครื่อง` +
+            ` · นาฬิกา RTC: ${data.rtc || '-'} · SD: ${data.sd || '-'}`;
           lastHostData = data;
           syncConfigsFromHost(data.stations);
           renderStations(data.stations);
@@ -1513,7 +1574,7 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
 
     setInterval(() => {
       if (document.getElementById('tab-graphs').classList.contains('active')) renderGraphs();
-      if (document.getElementById('tab-logs').classList.contains('active')) fetchLogs();
+      if (document.getElementById('tab-logs').classList.contains('active')) { fetchLogs(); fetchSdFiles(); }
     }, 15000);
 
     renderTabs();

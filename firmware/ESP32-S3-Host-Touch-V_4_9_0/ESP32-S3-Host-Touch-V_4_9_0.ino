@@ -7,12 +7,21 @@
  * ระบบ: Central Host Gateway (เครื่องควบคุมและติดตามศูนย์กลาง)
  * เวอร์ชัน: 4.9.0-TOUCH (Protocol v3 — ใช้คู่กับ Bed Station Firmware 7.4.x / 7.5.x)
  * บอร์ดประมวลผล: ESP32-S3 Dev Module (N16R8) + จอสัมผัส 2.4" (ST7789V/ILI9341 240x320 + XPT2046)
- *                 + Passive Buzzer + ปุ่ม multifunction 1 ปุ่ม
+ *                 + SD card (ช่องบนหลังจอ) + นาฬิกา DS3231 + Passive Buzzer + ปุ่ม multifunction
  *
  * ผู้พัฒนาระบบ: นายกิตติพันธ์ รัตนคร (นักวิชาการคอมพิวเตอร์ มจร. วิทยาเขตแพร่)
  * อาจารย์ที่ปรึกษา: ดร.กรรณิการ์ กาศสมบูรณ์ (วิทยาลัยพยาบาลบรมราชชนนี แพร่)
  *
  * ---------------------------------------------------------------------------
+ * เพิ่มใน V4.9.1: นาฬิกาสำรอง DS3231 และการบันทึกข้อมูลลง SD card
+ *  - DS3231 (I2C) เก็บวันที่-เวลาไว้แม้ไฟดับ อ่านค่ามาตั้งเวลาระบบตอนบูตทันที
+ *    และเมื่อเปิดหน้าเว็บจากมือถือ เวลาของเครื่องนั้นจะถูกเขียนลง DS3231 ให้ด้วย
+ *    (เก็บเป็น UTC แล้วแปลงเป็นเวลาไทยตอนแสดงผล) ถ้าไม่มีโมดูลก็ยังใช้งานได้เหมือนเดิม
+ *  - บันทึกข้อมูลรายนาทีของทุกเตียงลง SD card เป็นไฟล์ CSV วันละไฟล์
+ *    พร้อมไฟล์บันทึกเหตุการณ์ (เกิดเหตุเตือน เริ่มถุงใหม่ แก้ค่า ตั้งเวลา) แยกอีกไฟล์
+ *    ดาวน์โหลดไฟล์จากหน้าเว็บได้ และดูสถานะการ์ดได้จากหน้าตั้งค่าบนจอ
+ *  - ถอด/ใส่การ์ดกลางคันได้ ระบบจะลองต่อการ์ดใหม่ให้เองทุก 30 วินาที
+ *
  * เปลี่ยนใน V4.9.0-TOUCH: ใช้จอสัมผัส 2.4" และทำหน้าจอให้ใช้งานเหมือนสมาร์ตโฟน
  *  - จอแนวตั้ง 240x320 พร้อมทัชสกรีนแบบความต้านทาน (XPT2046) ใช้ร่วมบัส SPI เดียวกับจอ
  *  - หน้าหลักแบบ FOCUS: เตียงที่ต้องดูตอนนี้ตัวใหญ่ + รายการเตียงอื่น แตะที่ใดก็เข้าดูเตียงนั้นได้
@@ -84,11 +93,15 @@
 #include <Adafruit_ST7789.h>
 #include <XPT2046_Touchscreen.h>
 #include <SPI.h>
+#include <Wire.h>
+#include <RTClib.h>
+#include <FS.h>
+#include <SD.h>
 #include <time.h>
 #include <sys/time.h>
 #include <driver/rtc_io.h>
 
-#define APP_VERSION         "4.9.0-TOUCH"
+#define APP_VERSION         "4.9.1-TOUCH"
 #define DEV_NAME            "กิตติพันธ์ รัตนคร"
 #define DEV_ROLE            "นักวิชาการคอมพิวเตอร์"
 #define DEV_INSTITUTION     "มหาวิทยาลัยมหาจุฬาลงกรณราชวิทยาลัย วิทยาเขตแพร่"
@@ -127,6 +140,14 @@
 
 #define BACKLIGHT_DIM_MS    180000  // ไม่มีการใช้งาน 3 นาที -> หรี่จอ
 #define BACKLIGHT_DIM_PCT   20
+
+// ---- SD card บนหลังจอ (ใช้บัส SPI ร่วมกับจอและทัช ต่างกันที่ขา CS) ----
+#define SD_CS_PIN           21
+#define SD_SPI_HZ           20000000
+
+// ---- นาฬิกาสำรอง DS3231 (I2C) ----
+#define RTC_SDA_PIN         5
+#define RTC_SCL_PIN         6
 
 // ----------------------------------------------------------------------------
 // ค่าคงที่ของระบบสื่อสารและการแจ้งเตือน (ต้องตรงกับ Station)
@@ -467,6 +488,186 @@ void backupClockToNvs() {
   preferences.begin("sys-config", false);
   preferences.putUInt("lastEpoch", (uint32_t)now);
   preferences.end();
+}
+
+
+// ============================================================================
+// นาฬิกาสำรอง DS3231 (I2C) และการบันทึกข้อมูลลง SD card (ช่องบนหลังจอ)
+// ----------------------------------------------------------------------------
+//  DS3231 : เก็บวันที่-เวลาไว้แม้ไฟดับ (มีถ่านกระดุมในตัว) ความคลาดเคลื่อนต่ำมาก
+//           เวลาที่เก็บเป็น UTC ส่วนการแสดงผลแปลงเป็นเวลาไทยด้วย TZ ของระบบ
+//           เมื่อเปิดหน้าเว็บจากมือถือ เวลาจากเครื่องนั้นจะถูกเขียนลง DS3231 ให้ด้วย
+//  SD card: บันทึกข้อมูลรายนาทีของทุกเตียงเป็นไฟล์ CSV วันละไฟล์ (/IVLOG/YYYYMMDD_data.csv)
+//           และบันทึกเหตุการณ์สำคัญไว้อีกไฟล์ (/IVLOG/YYYYMMDD_event.csv)
+//           ดาวน์โหลดไฟล์ได้จากหน้าเว็บ (แท็บ Log & Shift Report)
+// ============================================================================
+RTC_DS3231 rtc;
+bool rtcPresent  = false;     // ตรวจพบโมดูล DS3231
+bool rtcTimeOk   = false;     // เวลาใน DS3231 ใช้งานได้ (ไม่ได้ไฟหมด)
+bool sdPresent   = false;     // ใส่ SD card และ mount ได้
+uint32_t sdRowsWritten = 0;   // จำนวนแถวข้อมูลที่เขียนลง SD แล้ว (นับตั้งแต่เปิดเครื่อง)
+char sdDateStr[12] = "nodate";
+unsigned long lastSdRetry  = 0;
+unsigned long lastRtcCheck = 0;
+uint8_t lastLoggedAlert[MAX_SUPPORTED_STATIONS];
+
+// ---------------------------------------------------------------- DS3231
+void initRtc() {
+  Wire.begin(RTC_SDA_PIN, RTC_SCL_PIN);
+  rtcPresent = rtc.begin(&Wire);
+  if (!rtcPresent) {
+    Serial.println("[RTC] DS3231 not found");
+    return;
+  }
+  rtcTimeOk = !rtc.lostPower();
+  if (!rtcTimeOk) {
+    Serial.println("[RTC] DS3231 lost power - waiting for time from web");
+    return;
+  }
+  DateTime now = rtc.now();
+  uint32_t epoch = now.unixtime();
+  if (epoch > 1600000000UL) {
+    struct timeval tv = { (time_t)epoch, 0 };
+    settimeofday(&tv, NULL);
+    isTimeSynced = true;      // DS3231 เป็นแหล่งเวลาที่เชื่อถือได้
+    isTimeApprox = false;
+  } else {
+    rtcTimeOk = false;
+  }
+}
+
+// เขียนเวลาปัจจุบันของระบบลง DS3231 (เรียกเมื่อหน้าเว็บส่งเวลามาให้)
+void syncRtcFromSystem() {
+  if (!rtcPresent) return;
+  time_t now;
+  time(&now);
+  if (now <= 1600000000) return;
+  rtc.adjust(DateTime((uint32_t)now));
+  rtcTimeOk = true;
+}
+
+// อ่านเวลาจาก DS3231 มาแก้ค่าเวลาของระบบเป็นระยะ (กันนาฬิกาภายในชิปเดินคลาด)
+void serviceRtc(unsigned long nowMs) {
+  if (!rtcPresent || !rtcTimeOk) return;
+  if (nowMs - lastRtcCheck < 3600000UL) return;    // ทุก 1 ชั่วโมง
+  lastRtcCheck = nowMs;
+  DateTime t = rtc.now();
+  uint32_t epoch = t.unixtime();
+  if (epoch <= 1600000000UL) return;
+  time_t sys;
+  time(&sys);
+  if (abs((long)(epoch - (uint32_t)sys)) >= 2) {   // ต่างกันเกิน 2 วินาทีจึงปรับ
+    struct timeval tv = { (time_t)epoch, 0 };
+    settimeofday(&tv, NULL);
+  }
+}
+
+String rtcStatusText() {
+  if (!rtcPresent) return String("not found");
+  return rtcTimeOk ? String("OK") : String("set time on web");
+}
+
+// ---------------------------------------------------------------- SD card
+void sdUpdateDateStr() {
+  struct tm ti;
+  if (!getLocalTime(&ti, 10)) {
+    snprintf(sdDateStr, sizeof(sdDateStr), "nodate");
+    return;
+  }
+  strftime(sdDateStr, sizeof(sdDateStr), "%Y%m%d", &ti);
+}
+
+String sdDataPath()  { return "/IVLOG/" + String(sdDateStr) + "_data.csv"; }
+String sdEventPath() { return "/IVLOG/" + String(sdDateStr) + "_event.csv"; }
+
+bool initSdCard() {
+  sdPresent = SD.begin(SD_CS_PIN, SPI_TFT, SD_SPI_HZ);
+  if (!sdPresent) {
+    Serial.println("[SD] card not found");
+    return false;
+  }
+  if (!SD.exists("/IVLOG")) SD.mkdir("/IVLOG");
+  sdUpdateDateStr();
+  Serial.printf("[SD] ready, logging to %s\n", sdDataPath().c_str());
+  return true;
+}
+
+// บันทึกเหตุการณ์ (เริ่มถุงใหม่ แก้ค่า เกิดเหตุเตือน ฯลฯ) — bedIdx = -1 คือเหตุการณ์ของระบบ
+void sdLogEvent(const char* type, int bedIdx, const String &detail) {
+  if (!sdPresent) return;
+  sdUpdateDateStr();
+  String path = sdEventPath();
+  bool isNew = !SD.exists(path);
+  File f = SD.open(path, FILE_APPEND);
+  if (!f) { sdPresent = false; return; }
+  if (isNew) f.println(F("datetime,type,bed,detail"));
+  f.print(getFormattedDateTime());
+  f.print(',');
+  f.print(type);
+  f.print(',');
+  if (bedIdx >= 0) f.print(bedIdx + 1); else f.print('-');
+  f.print(',');
+  f.println(detail);
+  f.close();
+}
+
+// บันทึกข้อมูลรายนาทีของทุกเตียงลงไฟล์ CSV (เรียกจากรอบบันทึก log รายนาทีใน loop)
+void sdLogMinute(const String &timestamp) {
+  if (!sdPresent) return;
+  sdUpdateDateStr();
+  String path = sdDataPath();
+  bool isNew = !SD.exists(path);
+  File f = SD.open(path, FILE_APPEND);
+  if (!f) {
+    sdPresent = false;                 // ถอดการ์ดออกกลางคัน -> หยุดบันทึกและลองใหม่ภายหลัง
+    return;
+  }
+  if (isNew) f.println(F("datetime,minute,bed,patient,drops,volume_ml,rate_mlhr,target_mlhr,alert,rssi,battery_v"));
+
+  for (int i = 0; i < activeStationCount; i++) {
+    const StationData &s = stations[i];
+    if (s.logCount == 0) continue;
+    const LogEntry &e = s.logs[s.logCount - 1];
+    f.print(timestamp);            f.print(',');
+    f.print(e.minuteIndex);        f.print(',');
+    f.print(i + 1);                f.print(',');
+    f.print(s.cfg.patientName);    f.print(',');
+    f.print(e.drops);              f.print(',');
+    f.print(e.volume, 1);          f.print(',');
+    f.print(e.rateHr, 1);          f.print(',');
+    f.print(e.targetRate, 0);      f.print(',');
+    f.print(alertTextEn(e.alertCode)); f.print(',');
+    f.print(e.rssi);               f.print(',');
+    f.println(e.battery, 2);
+    sdRowsWritten++;
+  }
+  f.close();
+}
+
+// ตรวจการ์ดซ้ำเป็นระยะ เผื่อเพิ่งเสียบเข้าไป หรือหลุดกลางทาง
+void serviceSdCard(unsigned long nowMs) {
+  if (sdPresent) return;
+  if (nowMs - lastSdRetry < 30000UL) return;
+  lastSdRetry = nowMs;
+  SD.end();
+  initSdCard();
+}
+
+String sdStatusText() {
+  if (!sdPresent) return String("no card");
+  return String(sdRowsWritten) + " rows";
+}
+
+// บันทึกเมื่อรหัสเตือนของเตียงเปลี่ยน (เรียกทุกวินาทีหลังประเมินการแจ้งเตือน)
+void sdLogAlertChanges() {
+  if (!sdPresent) return;
+  for (int i = 0; i < activeStationCount; i++) {
+    uint8_t code = stations[i].alertCode;
+    if (code == lastLoggedAlert[i]) continue;
+    lastLoggedAlert[i] = code;
+    if (code == ALERT_NONE) sdLogEvent("ALERT_CLEAR", i, String("back to normal"));
+    else                    sdLogEvent("ALERT", i, String(alertTextEn(code)));
+  }
 }
 
 void broadcastSyncToNodes() {
@@ -1423,6 +1624,7 @@ void handleBedTap(int tx, int ty) {
     s.nearEndAck = false;
     s.alertCode = ALERT_NONE;
     saveBedConfig(uiSelectedBed);
+    sdLogEvent("NEW_BAG", uiSelectedBed, String("counter reset from screen"));
     tone(BUZZER_PIN, 2400, 60);
     uiNeedFramework = true;
     return;
@@ -1430,6 +1632,7 @@ void handleBedTap(int tx, int ty) {
   if (zoneHit(ZONE_BED_ACK, tx, ty)) {
     stations[uiSelectedBed].nearEndAck = true;
     stations[uiSelectedBed].nearNextChime = 0;
+    sdLogEvent("ACK_NEAR_END", uiSelectedBed, String("acknowledged on screen"));
     tone(BUZZER_PIN, 2600, 40);
     uiNeedFramework = true;
     return;
@@ -1560,6 +1763,12 @@ void handleBedSetTap(int tx, int ty) {
     s.nearEndPct       = editNearPct;
     s.nearEndAck       = false;              // เปลี่ยนแผนแล้ว เริ่มนับเตือนใกล้หมดใหม่
     saveBedConfig(uiSelectedBed);
+    {
+      char d[64];
+      snprintf(d, sizeof(d), "target %d mL/h  plan %d mL  df %d  near %d%%",
+               (int)editTargetRate, (int)editPlanVolume, (int)editDropFactor, (int)editNearPct);
+      sdLogEvent("BED_CONFIG", uiSelectedBed, String(d));
+    }
     tone(BUZZER_PIN, 2600, 80);
     uiScreen = SCR_BED;
     uiNeedFramework = true;
@@ -1653,12 +1862,14 @@ void drawSysScreen(bool force) {
     drawTitleBar("SETTINGS");
     drawButton(ZONE_SYS_CALIB, "TOUCH CALIBRATION", C_BTN, C_WHITE);
 
-    tft.fillRoundRect(6, 210, 228, 96, 7, C_CARD);
-    textAt("WI-FI / WEB", 14, 216, 1, C_DIM, C_CARD);
-    textAt(String(default_ap_ssid), 14, 232, 1, C_WHITE, C_CARD);
-    textAt("pass " + String(default_ap_pass), 14, 248, 1, C_DIM, C_CARD);
-    textAt("http://" + WiFi.softAPIP().toString(), 14, 264, 1, C_SKY, C_CARD);
-    textAt("Host v" APP_VERSION, 14, 288, 1, C_DIM, C_CARD);
+    tft.fillRoundRect(6, 204, 228, 112, 7, C_CARD);
+    textAt("WI-FI / WEB", 14, 210, 1, C_DIM, C_CARD);
+    textRight("v" APP_VERSION, 226, 210, 1, C_DIM, C_CARD);
+    textAt(String(default_ap_ssid), 14, 224, 1, C_WHITE, C_CARD);
+    textAt("pass " + String(default_ap_pass), 14, 238, 1, C_DIM, C_CARD);
+    textAt("http://" + WiFi.softAPIP().toString(), 14, 252, 1, C_SKY, C_CARD);
+    tft.drawFastHLine(14, 267, 212, C_DIM);
+    textAt("CLOCK / SD CARD", 14, 274, 1, C_DIM, C_CARD);
     cacheSummary = "";
   } else {
     drawStatusBar(false);
@@ -1667,10 +1878,18 @@ void drawSysScreen(bool force) {
   drawSettingRow(62,  "ACTIVE BEDS",       String(activeStationCount), "beds", force);
   drawSettingRow(112, "SCREEN BRIGHTNESS", String(screenBrightness),   "%",    force);
 
-  String key = String((int)WiFi.softAPgetStationNum());
+  // แถวสถานะแบบเปลี่ยนแปลงได้: จำนวนอุปกรณ์ที่ต่ออยู่ + สถานะนาฬิกา DS3231 + SD card
+  String devTxt = String((int)WiFi.softAPgetStationNum()) + " dev";
+  String rtcTxt = rtcStatusText();
+  String sdTxt  = sdStatusText();
+  String key = devTxt + "|" + rtcTxt + "|" + sdTxt;
   if (key != cacheSummary) {
     cacheSummary = key;
-    textRight(padTo("devices " + key, 12), 226, 288, 1, C_DIM, C_CARD);
+    textRight(padTo(devTxt, 8), 226, 224, 1, C_DIM, C_CARD);
+    textAt(padTo("RTC " + rtcTxt, 24), 14, 288, 1,
+           (rtcPresent && rtcTimeOk) ? C_GREEN : C_YELLOW, C_CARD);
+    textAt(padTo("SD  " + sdTxt, 24), 14, 302, 1,
+           sdPresent ? C_GREEN : C_YELLOW, C_CARD);
   }
 }
 
@@ -1964,6 +2183,9 @@ void handleApiData() {
   json += "\"hostBatVolts\":" + String(hostBatteryVolts, 2) + ",";
   json += "\"hostBatPct\":" + String(hostBatteryPct) + ",";
   json += "\"snoozed\":" + String(isSnoozed() ? "true" : "false") + ",";
+  json += "\"rtc\":\"" + jsonEscape(rtcStatusText().c_str()) + "\",";
+  json += "\"sd\":\"" + jsonEscape(sdStatusText().c_str()) + "\",";
+  json += "\"sdRows\":" + String(sdRowsWritten) + ",";
   json += "\"stations\":[";
   for (int i = 0; i < activeStationCount; i++) {
     const StationData &s = stations[i];
@@ -2183,6 +2405,71 @@ void handleDownloadCSV() {
 }
 
 // ----------------------------------------------------------------------------
+// ไฟล์บันทึกบน SD card — รายการไฟล์ และดาวน์โหลดผ่านหน้าเว็บ
+// ----------------------------------------------------------------------------
+
+// อนุญาตเฉพาะชื่อไฟล์ธรรมดาในโฟลเดอร์ /IVLOG (กันการอ่านไฟล์นอกโฟลเดอร์)
+bool sdSafeName(const String &name) {
+  if (name.length() == 0 || name.length() > 40) return false;
+  for (unsigned int i = 0; i < name.length(); i++) {
+    char c = name.c_str()[i];
+    bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.';
+    if (!ok) return false;
+  }
+  if (name == "." || name == "..") return false;
+  return true;
+}
+
+// GET /api/sd/list -> { "present":true, "rows":123, "files":[{"name":"...","size":123}] }
+void handleSdList() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  String json = "{\"present\":";
+  json += sdPresent ? "true" : "false";
+  json += ",\"rows\":" + String(sdRowsWritten);
+  json += ",\"files\":[";
+  if (sdPresent) {
+    File dir = SD.open("/IVLOG");
+    if (dir && dir.isDirectory()) {
+      bool first = true;
+      File f = dir.openNextFile();
+      while (f) {
+        if (!f.isDirectory()) {
+          String nm = String(f.name());
+          int slash = -1;
+          for (unsigned int i = 0; i < nm.length(); i++) if (nm.c_str()[i] == '/') slash = (int)i;
+          if (slash >= 0) nm = nm.substring(slash + 1);
+          if (!first) json += ",";
+          first = false;
+          json += "{\"name\":\"" + jsonEscape(nm.c_str()) + "\",\"size\":" + String((unsigned long)f.size()) + "}";
+        }
+        f.close();
+        f = dir.openNextFile();
+      }
+    }
+    if (dir) dir.close();
+  }
+  json += "]}";
+  server.send(200, "application/json", json);
+}
+
+// GET /api/sd/download?file=20260916_data.csv
+void handleSdDownload() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  if (!sdPresent) { server.send(503, "text/plain", "No SD card"); return; }
+  if (!server.hasArg("file")) { server.send(400, "text/plain", "Missing file"); return; }
+  String name = server.arg("file");
+  if (!sdSafeName(name)) { server.send(400, "text/plain", "Bad file name"); return; }
+  String path = "/IVLOG/" + name;
+  if (!SD.exists(path)) { server.send(404, "text/plain", "Not found"); return; }
+  File f = SD.open(path, FILE_READ);
+  if (!f) { server.send(500, "text/plain", "Open failed"); return; }
+  server.sendHeader("Content-Disposition", "attachment; filename=" + name);
+  server.streamFile(f, "text/csv; charset=utf-8");
+  f.close();
+}
+
+// ----------------------------------------------------------------------------
 // ข้อมูลจุดเชื่อมต่อ (อ่านอย่างเดียว) และการตั้งเวลาจากเครื่องของผู้ใช้
 // ----------------------------------------------------------------------------
 void handleApStatus() {
@@ -2217,8 +2504,10 @@ void handleTimeSet() {
   settimeofday(&tv, NULL);
   isTimeSynced = true;
   isTimeApprox = false;
+  syncRtcFromSystem();                 // เก็บลง DS3231 ให้เวลาคงอยู่แม้ไฟดับ
   backupClockToNvs();
   lastTimeBackup = millis();
+  sdLogEvent("TIME_SET", -1, getFormattedDateTime());
   server.send(200, "text/plain", getFormattedDateTime().c_str());
 }
 
@@ -2304,14 +2593,21 @@ void setup() {
   if (screenBrightness < 25 || screenBrightness > 100) screenBrightness = 100;
   setBacklightRaw(screenBrightness);
 
-  // เขตเวลาไทยถาวร แล้วกู้เวลาที่สำรองไว้ก่อนไฟดับ (จะถูกแทนที่ทันทีเมื่อเปิดหน้าเว็บ)
+  // เขตเวลาไทยถาวร
   setenv("TZ", TZ_THAILAND, 1);
   tzset();
-  if (savedEpoch > 1600000000UL) {
+
+  // ลำดับแหล่งเวลา: DS3231 (แม่นที่สุด) -> ค่าที่สำรองไว้ใน NVS -> รอหน้าเว็บส่งเวลามาให้
+  initRtc();
+  if (!isTimeSynced && savedEpoch > 1600000000UL) {
     struct timeval tv = { (time_t)savedEpoch, 0 };
     settimeofday(&tv, NULL);
     isTimeApprox = true;
   }
+
+  initSdCard();
+  for (int i = 0; i < MAX_SUPPORTED_STATIONS; i++) lastLoggedAlert[i] = ALERT_NONE;
+  sdLogEvent("BOOT", -1, String("Host v" APP_VERSION " started"));
   if (activeStationCount < 1 || activeStationCount > MAX_SUPPORTED_STATIONS) activeStationCount = 5;
 
   loadBedConfigs();
@@ -2357,6 +2653,8 @@ void setup() {
   server.on("/api/logs/csv", handleDownloadCSV);
   server.on("/api/ap/status", handleApStatus);
   server.on("/api/time/set", HTTP_POST, handleTimeSet);
+  server.on("/api/sd/list", handleSdList);
+  server.on("/api/sd/download", handleSdDownload);
   server.begin();
 
   drawSplashScreen();
@@ -2391,11 +2689,14 @@ void loop() {
     lastTimeBackup = currentMillis;
     backupClockToNvs();
   }
+  serviceRtc(currentMillis);           // ปรับเวลาระบบตาม DS3231 ทุก 1 ชั่วโมง
+  serviceSdCard(currentMillis);        // ลองต่อ SD card ใหม่ถ้าเพิ่งเสียบ/หลุด
 
   // ---- ประเมินเตือน + ส่ง Sync ทุก 1 วินาที ----
   if (currentMillis - lastSyncBroadcastTime >= SYNC_INTERVAL_MS) {
     lastSyncBroadcastTime = currentMillis;
     evaluateClinicalAlerts();
+    sdLogAlertChanges();               // รหัสเตือนเปลี่ยน -> บันทึกลงไฟล์เหตุการณ์
     broadcastSyncToNodes();
   }
 
@@ -2469,6 +2770,7 @@ void loop() {
         s.logs[MAX_LOGS - 1] = entry;
       }
     }
+    sdLogMinute(currentTimestamp);     // เขียนข้อมูลนาทีนี้ของทุกเตียงลง SD card
     lastMinuteLogTime += 60000;
   }
 }

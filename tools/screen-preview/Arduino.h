@@ -13,6 +13,8 @@
 #define OUTPUT 1
 #define INPUT_PULLUP 2
 #define PROGMEM
+#define F(x) (x)
+#include <sys/time.h>
 typedef unsigned char byte;
 typedef int esp_err_t;
 typedef int portMUX_TYPE;
