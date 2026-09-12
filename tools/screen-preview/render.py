@@ -46,6 +46,9 @@ def main(ops_path, outdir):
         elif op == "CIRC":
             x, y, r = int(p[1]), int(p[2]), int(p[3])
             d.ellipse([(x - r) * S, (y - r) * S, (x + r) * S, (y + r) * S], fill=rgb(p[4]))
+        elif op == "CIRCO":
+            x, y, r = int(p[1]), int(p[2]), int(p[3])
+            d.ellipse([(x - r) * S, (y - r) * S, (x + r) * S, (y + r) * S], outline=rgb(p[4]), width=S)
         elif op == "TEXT":
             x, y, size, col, bg = int(p[1]), int(p[2]), int(p[3]), p[4], p[5]
             text = " ".join(p[6:]) if len(p) > 6 else ""

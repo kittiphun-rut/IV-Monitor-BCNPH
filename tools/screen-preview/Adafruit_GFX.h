@@ -16,6 +16,7 @@ public:
   void drawLine(int x0,int y0,int x1,int y1,uint16_t c){ fprintf(g_ops,"LINE %d %d %d %d %u\n",x0,y0,x1,y1,c); }
   void drawPixel(int x,int y,uint16_t c){ fprintf(g_ops,"RECT %d %d 1 1 %u 1\n",x,y,c); }
   void fillCircle(int x,int y,int r,uint16_t c){ fprintf(g_ops,"CIRC %d %d %d %u\n",x,y,r,c); }
+  void drawCircle(int x,int y,int r,uint16_t c){ fprintf(g_ops,"CIRCO %d %d %d %u\n",x,y,r,c); }
   void setTextSize(uint8_t s){ tsize = s ? s : 1; }
   void setTextColor(uint16_t c,uint16_t b){ tcolor=c; tbg=b; }
   void setTextWrap(bool){}

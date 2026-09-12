@@ -67,12 +67,10 @@ int analogRead(int);
 void analogReadResolution(int);
 void analogSetAttenuation(adc_attenuation_t);
 void tone(int,unsigned int,unsigned long d=0);
-void randomSeed(unsigned long);
-long random(long);
-long random(long,long);
-void rgbLedWrite(int,int,int,int);
-void neopixelWrite(int,int,int,int);
-
+bool ledcAttach(int,int,int);
+void ledcWrite(int,int);
+void ledcSetup(int,int,int);
+void ledcAttachPin(int,int);
 void noTone(int);
 long map(long,long,long,long,long);
 using std::min; using std::max;
