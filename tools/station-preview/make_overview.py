@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""รวมภาพหน้าจอ Station v7.5.1 เป็นแผ่นสรุปสำหรับใส่ใน README
+"""รวมภาพหน้าจอ Station v7.7.0 เป็นแผ่นสรุปสำหรับใส่ใน README
+
+(แผ่น overview_calib ของ v7.5.1 ยังเก็บไว้ในที่เก็บ ไม่ได้สร้างใหม่จากสคริปต์นี้)
 
 ใช้: python3 make_overview.py [docs_dir]
 (ฟอนต์มาตรฐานของ PIL ไม่มีตัวอักษรไทย ป้ายกำกับจึงเป็นอังกฤษ)
@@ -22,15 +24,9 @@ SHEETS = {
         ("p1_nearend.png", "IV BAG - near end"),
         ("near_end.png",   "NEXT BAG notice"),
     ],
-    "overview_calib": [
-        ("cal_1_noise.png",  "STEP 1 - noise floor"),
-        ("cal_2_learn.png",  "STEP 2 - learn real drops"),
-        ("cal_3_result.png", "STEP 3 - threshold + SNR"),
-        ("cal_4_verify.png", "VERIFY - live count"),
-    ],
     "overview_other": [
+        ("sensor_check.png","SENSOR CHECK (hold 3s)"),
         ("config_id.png",   "SET BED ID"),
-        ("hold_hud.png",    "BUTTON HOLD menu"),
         ("screensaver.png", "SCREENSAVER"),
         ("credit.png",      "CREDITS (hold 5s)"),
     ],

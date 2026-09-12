@@ -116,15 +116,10 @@ int main(int argc,char** argv){
 #endif
 
 #ifdef SCOPE_TOP
-  // ---- เฟิร์มแวร์เซ็นเซอร์อนาล็อก (v7.5.1): หน้าคาลิเบรต 3 ขั้น + ตรวจสอบ ----
-  // เรียกทีละขั้นเพื่อเก็บภาพแต่ละหน้า (ไม่กดปุ่ม ปล่อยให้แต่ละขั้นจบเองตามเวลา)
+  // ---- หน้าตรวจเซนเซอร์ (v7.7.x): จำลองสัญญาณจริงให้กราฟมีของให้ดู ----
   g_simSensor = true;
-  g_simDrops  = false;                 // ขั้นที่ 1 บอกผู้ใช้ว่าอย่าให้มีหยด
-  calStepNoise();  emitMark("cal_1_noise");
-  g_simDrops  = true;
-  calStepLearn();  emitMark("cal_2_learn");
-  calFinish();     emitMark("cal_3_result");
-  calVerify();     emitMark("cal_4_verify");
+  g_btnScript = 6000;                  // ค้างหน้าจอไว้พอให้เรียนรู้และวาดหลายรอบ
+  executeButtonCalibrationWizard(); emitMark("sensor_check");
   g_simSensor = false;
 #endif
   fclose(g_ops);
