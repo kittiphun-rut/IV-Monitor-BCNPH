@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 OUT="${1:-../../docs/screens-station}"
-SKETCH="${2:-../../firmware/ESP32-S3-Station-V_7_7_1/ESP32-S3-Station-V_7_7_1.ino}"
+SKETCH="${2:-../../firmware/ESP32-S3-Station-V_7_7_2/ESP32-S3-Station-V_7_7_2.ino}"
 
 # ตรวจลำดับการประกาศชนิดข้อมูล (Arduino แทรก prototype ไว้ก่อนฟังก์ชันแรกของไฟล์)
 python3 ../check-ino-types.py "$SKETCH"

@@ -27,6 +27,8 @@ class U8G2_SH1106_128X64_NONAME_F_HW_I2C {
   U8G2_SH1106_128X64_NONAME_F_HW_I2C(int, uint8_t) {}
   bool begin() { return true; }
   void sendBuffer() {}
+  void setBusClock(uint32_t) {}
+  void setContrast(uint8_t) {}
   void setPowerSave(uint8_t) {}
   void clearBuffer() { if (g_ops) fprintf(g_ops, "CLEAR\n"); }
   void setDrawColor(uint8_t c) { color_ = c; }
@@ -52,6 +54,11 @@ class U8G2_SH1106_128X64_NONAME_F_HW_I2C {
   void drawRBox(int x, int y, int w, int h, int r)      { emit("RBOX",   x, y, w, h, r); }
   void drawRFrame(int x, int y, int w, int h, int r)    { emit("RFRAME", x, y, w, h, r); }
   void drawHLine(int x, int y, int w)                   { emit("HLINE",  x, y, w, 1, 0); }
+  void drawVLine(int x, int y, int h)                   { emit("VLINE",  x, y, 1, h, 0); }
+  void drawPixel(int x, int y)                          { emit("BOX",    x, y, 1, 1, 0); }
+  void drawLine(int x0, int y0, int x1, int y1) {
+    if (g_ops) fprintf(g_ops, "LINE %d %d %d %d %d\n", x0, y0, x1, y1, color_);
+  }
 
  private:
   void emit(const char* op, int x, int y, int w, int h, int r) {

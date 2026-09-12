@@ -20,7 +20,14 @@ TILES = [
     ("07_block_2beds.png",       "07  BLOCK MONITOR - 2 beds"),
     ("08_block_8beds.png",       "08  BLOCK MONITOR - 8 beds"),
     ("09_screensaver.png",       "09  SCREENSAVER"),
+    ("12_detail_weak_link.png",  "12  BED DETAIL - weak link warning"),
 ]
+
+# แถบแสดงแอนิเมชันหยด: 6 เฟรมติดกัน ห่างกันเฟรมละ 60 ms
+ANIM = {
+    "anim_grid.png":   [("10_anim_grid_f%d.png" % i,   "t = %d ms" % (i * 60)) for i in range(6)],
+    "anim_detail.png": [("11_anim_detail_f%d.png" % i, "t = %d ms" % (i * 60)) for i in range(6)],
+}
 
 COLS, GAP, LABEL_H = 2, 24, 26
 BG, FG = (14, 14, 18), (200, 205, 215)
@@ -38,3 +45,18 @@ for i, (img, text) in enumerate(imgs):
 out = f"{DOCS}/overview.png"
 sheet.save(out)
 print(out, sheet.size)
+
+
+# --- แถบแอนิเมชัน ---
+for out_name, items in ANIM.items():
+    tiles = [(Image.open(f"{DOCS}/{f}"), t) for f, t in items]
+    w, h = tiles[0][0].size
+    strip = Image.new("RGB", (GAP + len(tiles) * (w + GAP), LABEL_H + h + GAP * 2), BG)
+    draw = ImageDraw.Draw(strip)
+    for i, (img, text) in enumerate(tiles):
+        x = GAP + i * (w + GAP)
+        draw.text((x, 8), text, fill=FG)
+        strip.paste(img, (x, LABEL_H + GAP // 2))
+    out = f"{DOCS}/{out_name}"
+    strip.save(out)
+    print(out, strip.size)

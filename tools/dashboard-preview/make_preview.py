@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-src = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "firmware/ESP32-S3-Host-OLED-V_4_7_2"
+src = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "firmware/ESP32-S3-Host-OLED-V_4_7_3"
 out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).resolve().parent / "preview.html"
 
 text = (src / "web_dashboard.h").read_text(encoding="utf-8")
@@ -24,23 +24,23 @@ MOCK = """
 <script>
 (function () {
   const beds = [
-    { id:1, name:'สมชาย ใจดี',   alert:0, vol:180,  rate:98.4,  plan:1000 },
-    { id:2, name:'มาลี ศรีสุข',  alert:3, vol:820,  rate:96.0,  plan:1000 },
-    { id:3, name:'ประสิทธิ์ พูนผล', alert:2, vol:410, rate:48.0, plan:1000 },
-    { id:4, name:'จันทร์ เพ็ญศรี', alert:5, vol:640,  rate:0.0,   plan:1000 },
-    { id:5, name:'อนงค์ วงศ์ทอง', alert:6, vol:0,    rate:0.0,   plan:1000 }
+    { id:1, name:'สมชาย ใจดี',   alert:0, vol:180,  rate:98.4,  plan:1000, link:100 },
+    { id:2, name:'มาลี ศรีสุข',  alert:3, vol:820,  rate:96.0,  plan:1000, link:100 },
+    { id:3, name:'ประสิทธิ์ พูนผล', alert:2, vol:410, rate:48.0, plan:1000, link:90  },
+    { id:4, name:'จันทร์ เพ็ญศรี', alert:5, vol:640,  rate:0.0,   plan:1000, link:40  },
+    { id:5, name:'อนงค์ วงศ์ทอง', alert:6, vol:0,    rate:0.0,   plan:1000, link:100 }
   ];
   const stations = beds.map(b => ({
-    id:b.id, online:true, running:true, rssi:-62, battery:3.95,
+    id:b.id, online:true, running:true, rssi:-62, battery:3.95, link:b.link, rxTotal:1234,
     totalDrops:Math.round(b.vol*20), volumeMl:b.vol, flowRateHr:b.rate,
     msSinceLastDrop:1200, targetRate:100, planVolume:b.plan, dropFactor:20,
     patientName:b.name, alertCode:b.alert, nearEndPct:80, nearEndAck:false,
     caseActive:true, caseStart:'18/09/2569 08:30'
   }));
   const data = {
-    version:'4.7.2-OLED', activeCount:beds.length, currentTime:'18/09/2569 09:15:20',
+    version:'4.7.3-OLED', activeCount:beds.length, currentTime:'18/09/2569 09:15:20',
     timeSynced:true, timeApprox:false, apClients:2, apMaxClients:8, channel:1,
-    hostBatVolts:4.05, hostBatPct:92, snoozed:false, stations
+    hostBatVolts:4.05, hostBatPct:92, snoozed:false, linkWeakPct:60, syncFail:0, stations
   };
   const logs = { logs:[], dropFactor:20 };
   window.fetch = function (url) {

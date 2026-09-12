@@ -60,6 +60,10 @@ static void setBed(int i, bool online, bool running, float rate, float vol,
   s.msSinceLastDrop = running ? 1200 : 0;
   s.lastRecvTime = online ? g_millis : 0;
   s.firstRecvTime = online ? g_millis : 0;
+  s.linkPct = online ? 100 : 0;
+  s.rxTotal = online ? 1234 : 0;
+  // เฟสเริ่มต้นของแอนิเมชัน: หยดล่าสุดเพิ่งตกไปเมื่อ msSinceLastDrop ที่แล้ว
+  s.lastDropAtMs = (online && running && rate > 0.0f) ? (g_millis - s.msSinceLastDrop) : 0;
   s.alertCode = alert;
   s.cfg.targetRateHr = 100;
   s.cfg.planVolumeMl = plan;
@@ -105,6 +109,34 @@ int main(int argc, char** argv) {
   globalAlarmTriggered = false;
   currentOledPage = 0; updateHostOLED(); emitMark("04_block_all_normal");
 
+  // ---- แอนิเมชันหยด: จับภาพ 6 เฟรมติดกัน ห่างกันเฟรมละ 60 ms ----
+  // ตั้งให้หยดล่าสุดของทุกเตียง "ตกพร้อมกันเดี๋ยวนี้" แล้วเดินเวลาไปทีละเฟรม
+  for (int i = 0; i < 5; i++) {
+    if (stations[i].flowRate_ml_hr > 0.0f) stations[i].lastDropAtMs = g_millis;
+  }
+  for (int f = 0; f < 6; f++) {
+    char nm[32];
+    snprintf(nm, sizeof(nm), "10_anim_grid_f%d", f);
+    currentOledPage = 0; updateHostOLED(); emitMark(nm);
+    g_millis += 60;
+  }
+
+  // ---- แอนิเมชันหยดบนหน้ารายละเอียดเตียง 1 ----
+  stations[0].lastDropAtMs = g_millis;
+  for (int f = 0; f < 6; f++) {
+    char nm[32];
+    snprintf(nm, sizeof(nm), "11_anim_detail_f%d", f);
+    currentOledPage = 1; updateHostOLED(); emitMark(nm);
+    g_millis += 60;
+  }
+  currentOledPage = 0;
+
+  // ---- ลิงก์อ่อน: เตือนก่อนที่เตียงจะหลุดไปเป็น OFFLINE ----
+  stations[0].linkPct = 40;
+  currentOledPage = 1; updateHostOLED(); emitMark("12_detail_weak_link");
+  stations[0].linkPct = 100;
+  currentOledPage = 0;
+
   // ---- ใกล้หมด (ยังไม่รับทราบ) ----
   stations[1].alertCode = ALERT_NEAR_END;
   stations[1].nearEndAck = false;
@@ -112,12 +144,17 @@ int main(int argc, char** argv) {
   stations[1].alertCode = ALERT_NONE;
 
   // ---- 1 เตียง และ 2 เตียง (ผังต่างกัน) ----
+  stations[0].lastDropAtMs = g_millis - 120;   // หยดอยู่กลางทางพอดี
+  stations[1].lastDropAtMs = g_millis - 60;
   activeStationCount = 1; currentOledPage = 0; updateHostOLED(); emitMark("06_block_1bed");
   activeStationCount = 2; currentOledPage = 0; updateHostOLED(); emitMark("07_block_2beds");
 
   // ---- 8 เตียง ----
   activeStationCount = 8;
   for (int i = 5; i < 8; i++) setBed(i, true, true, 100.0f, 300.0f, 1000, ALERT_NONE, -66, 3.9f);
+  for (int i = 0; i < 8; i++) {
+    if (stations[i].flowRate_ml_hr > 0.0f) stations[i].lastDropAtMs = g_millis - 40 * i;  // เฟสต่างกันเล็กน้อย
+  }
   stations[6].alertCode = ALERT_TOO_FAST;
   globalAlarmTriggered = true;
   currentOledPage = 0; updateHostOLED(); emitMark("08_block_8beds");

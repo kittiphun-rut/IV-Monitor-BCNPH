@@ -1,5 +1,6 @@
 #pragma once
 #include "Arduino.h"
+#include <cstring>
 // สตับ Wi-Fi ฝั่ง PC ใช้ได้ทั้งเฟิร์มแวร์ Station (STA) และ Host (SoftAP)
 #define WIFI_OFF     0
 #define WIFI_STA     1
@@ -17,5 +18,11 @@ public:
   bool softAP(const char*, const char*, int ch = 1, int hidden = 0, int maxc = 4) { return true; }
   IPAddressStub softAPIP() { return IPAddressStub(); }
   int  softAPgetStationNum() { return 3; }
+  uint8_t* macAddress(uint8_t* mac) {
+    static const uint8_t demo[6] = {0x24, 0x6F, 0x28, 0xAB, 0xCD, 0xEF};
+    if (mac) memcpy(mac, demo, 6);
+    return mac;
+  }
+  String macAddress() { return String("24:6F:28:AB:CD:EF"); }
 };
 extern WiFiClassStub WiFi;

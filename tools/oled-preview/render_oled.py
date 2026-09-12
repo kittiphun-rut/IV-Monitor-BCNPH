@@ -82,12 +82,23 @@ def main(ops_path, outdir, scale=6):
             end = x + text_width(font, text)
             if end > W:
                 warnings.append(f"ข้อความล้นขอบขวา ({end} > {W} px) ที่ ({x},{y}) ฟอนต์ {font}: {text!r}")
+        elif op == "LINE":
+            x0, y0, x1, y1, color = (int(v) for v in p[1:6])
+            d = ImageDraw.Draw(img)
+            fill = 255 if color else 0
+            # วาดทีละพิกเซลของจอจริง เพื่อให้ภาพขยายออกมาเป็นบล็อกเหมือนพิกเซลจริง
+            steps = max(abs(x1 - x0), abs(y1 - y0))
+            for k in range(steps + 1):
+                px = x0 + round((x1 - x0) * k / steps) if steps else x0
+                py = y0 + round((y1 - y0) * k / steps) if steps else y0
+                d.rectangle([px * scale, py * scale,
+                             (px + 1) * scale - 1, (py + 1) * scale - 1], fill=fill)
         else:
             x, y, w, h, r, color = (int(v) for v in p[1:7])
             d = ImageDraw.Draw(img)
             fill = 255 if color else 0
             box = [x * scale, y * scale, (x + w) * scale - 1, (y + h) * scale - 1]
-            if op == "BOX" or op == "HLINE":
+            if op in ("BOX", "HLINE", "VLINE"):
                 d.rectangle(box, fill=fill)
             elif op == "FRAME":
                 d.rectangle(box, outline=fill, width=scale)
