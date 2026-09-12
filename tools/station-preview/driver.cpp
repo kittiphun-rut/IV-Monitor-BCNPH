@@ -15,7 +15,7 @@ void pinMode(int,int){} void digitalWrite(int,int){} int digitalRead(int){return
 int g_adc = 2731;
 int analogRead(int){ return g_adc; }
 void analogReadResolution(int){} void analogSetAttenuation(adc_attenuation_t){}
-void tone(int,unsigned int){} void noTone(int){}
+void tone(int,unsigned int,unsigned long){} void noTone(int){}
 void randomSeed(unsigned long){} long random(long m){return 0;} long random(long a,long){return a;}
 void rgbLedWrite(int,int,int,int){} void neopixelWrite(int,int,int,int){}
 long map(long x,long a,long b,long c,long d){return (x-a)*(d-c)/(b-a)+c;}

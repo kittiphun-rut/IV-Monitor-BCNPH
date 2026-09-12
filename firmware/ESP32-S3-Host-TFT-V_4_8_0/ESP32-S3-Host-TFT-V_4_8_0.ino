@@ -1,0 +1,3325 @@
+/**
+ * ============================================================================
+ * โครงการวิจัย: ผลของการใช้นวัตกรรม Smart IV Alert ต่อความแม่นยำในการแจ้งเตือนและปริมาณสารน้ำที่ได้รับ
+ * หน่วยงาน: หอผู้ป่วยอายุรกรรม โรงพยาบาลสูงเม่น จังหวัดแพร่
+ * สถาบัน: วิทยาลัยพยาบาลบรมราชชนนี แพร่ คณะพยาบาลศาสตร์ สถาบันพระบรมราชชนก
+ *
+ * ระบบ: Central Host Gateway (เครื่องควบคุมและติดตามศูนย์กลาง)
+ * เวอร์ชัน: 4.8.0-TFT (Protocol v3 — ใช้คู่กับ Bed Station Firmware 7.4.x / 7.5.x)
+ * บอร์ดประมวลผล: ESP32-S3 Dev Module (N16R8) + จอสี TFT 2.8" (ST7789V SPI 240x320) + Passive Buzzer
+ *
+ * ผู้พัฒนาระบบ: นายกิตติพันธ์ รัตนคร (นักวิชาการคอมพิวเตอร์ มจร. วิทยาเขตแพร่)
+ * อาจารย์ที่ปรึกษา: ดร.กรรณิการ์ กาศสมบูรณ์ (วิทยาลัยพยาบาลบรมราชชนนี แพร่)
+ *
+ * ---------------------------------------------------------------------------
+ * เปลี่ยนใน V4.8.0-TFT: เปลี่ยนจอ OLED 1.3" ขาวดำ -> จอสี TFT 2.8" (ST7789V 240x320)
+ *  - ใช้จอแนวนอน 320x240 ออกแบบหน้าจอใหม่แนวทาง "FOCUS"
+ *    ครึ่งซ้าย = เตียงที่ต้องดูตอนนี้ (ตัวเลขใหญ่ อ่านได้จากระยะไกล)
+ *    ครึ่งขวา  = รายการเตียงอื่นพร้อมอัตราไหลและแถบความคืบหน้า (ปรับขนาดแถวตามจำนวนเตียง)
+ *    แถบล่าง   = สรุปเหตุการณ์ที่ต้องทำตอนนี้
+ *  - เตียงที่ถูกเน้นเลือกอัตโนมัติ: เหตุวิกฤตมาก่อน ตามด้วยใกล้หมดถุง
+ *    กดปุ่ม PAGE เพื่อเลื่อนดูเตียงอื่นเองได้ (กลับเป็นอัตโนมัติเมื่อมีเหตุใหม่)
+ *  - มีจอเตือนเต็มจอสีแดงเมื่อเกิดเหตุวิกฤตและยังไม่พักเสียง
+ *  - ตัดไลบรารี U8g2 ออก ใช้ Adafruit GFX + ST7789 แทน (เฟิร์มแวร์นี้รองรับจอ TFT อย่างเดียว)
+ *  - ตรรกะการวัด การแจ้งเตือน ESP-NOW และหน้าเว็บทั้งหมดเหมือน V4.7.0 ทุกประการ
+ *
+ * ---------------------------------------------------------------------------
+ * เปลี่ยนใน V4.7.0: ตัดระบบจัดการ Wi-Fi (Router/อินเทอร์เน็ต) ออกทั้งหมด
+ *  - Host ทำงานเป็น Access Point อย่างเดียว (WIFI_AP) ไม่ต่อ Router ไม่ใช้ NTP
+ *    -> ไม่มีการสแกนช่อง/รีคอนเนกต์มาแย่งเวลาคลื่นวิทยุ ESP-NOW และ Web Server อีก
+ *  - รองรับสมาร์ตโฟน/แท็บเล็ตพร้อมกันได้ถึง AP_MAX_CLIENTS เครื่อง (เดิมค่าปริยาย 4
+ *    และในโหมด AP+STA เหลือใช้งานจริงเพียง 2-3 เครื่อง)
+ *  - ปิดโหมดประหยัดพลังงานของ Wi-Fi (WIFI_PS_NONE) ให้ตอบสนองหลายเครื่องพร้อมกันได้นิ่ง
+ *  - ESP-NOW ส่งผ่านอินเทอร์เฟซ AP (WIFI_IF_AP) เพราะไม่มี STA แล้ว
+ *  - ตั้งเวลาจากนาฬิกาของเครื่องที่เปิดหน้าเว็บโดยอัตโนมัติ (แทน NTP) และสำรองเวลาไว้ใน NVS
+ *    ทุก 10 นาที เพื่อให้เวลาไม่หายเมื่อไฟดับ (แสดงเป็น "เวลาโดยประมาณ" จนกว่าจะซิงก์ใหม่)
+ *  - หน้าเว็บ: เอาเมนูจัดการ Wi-Fi ออก เหลือหน้าต่างแสดงข้อมูลจุดเชื่อมต่อแบบอ่านอย่างเดียว
+ *    และหยุด Poll ข้อมูลเมื่อสลับแท็บไปทำอย่างอื่น (ลดภาระเมื่อมีผู้ใช้หลายเครื่อง)
+ *
+ * ---------------------------------------------------------------------------
+ * เพิ่มใน V4.6.0: แจ้งเตือนใกล้หมด (เตรียมถุงใหม่)
+ *  - ตั้ง % ต่อเตียงจากหน้าเว็บ (50-95%, ค่าเริ่มต้น 80%) เก็บถาวรใน NVS
+ *  - Host เสียงเตือนเบา 3 ครั้ง ซ้ำทุก 5 นาทีจนกว่าจะรับทราบ (ที่เตียง / ปุ่ม POWER / หน้าเว็บ)
+ *  - รับทราบแล้วซิงก์ไปทุกจุด และล้างเมื่อกด "เริ่มถุงใหม่" หรือแก้ปริมาตร/เปอร์เซ็นต์
+ *
+ * สรุปการแก้ไขจาก V4.4.1 (โค้ดภายในระบุ 6.3.2)
+ *  1) แก้จุดที่คอมไพล์ไม่ผ่าน (ฟิลด์ใน StationData / ชื่อฟังก์ชัน-ตัวแปรใน loop)
+ *  2) โครงสร้างแพ็กเก็ต ESP-NOW ตรงกับ Station ทุกไบต์ (มี static_assert ตรวจขนาด)
+ *  3) Station ส่งอัตราไหลที่คำนวณจากช่วงห่างระหว่างหยด + เวลาตั้งแต่หยดล่าสุด
+ *     -> เลิกคำนวณ rate จากหน้าต่าง 2 วินาทีที่ทำให้แจ้งเตือนสายพับผิด
+ *  4) Host เป็นผู้ตัดสินรหัสเตือนจุดเดียว เรียก evaluateClinicalAlerts() ทุก 1 วินาที
+ *  5) ส่ง Sync ทุก 1 วินาที (เดิม 10 วินาที ขณะที่ Station ตัดสินว่าหลุดที่ 5 วินาที)
+ *  6) เพิ่ม API /api/stations/config และ /api/stations/reset
+ *     ค่า Target Rate / Plan Volume / Drop Factor / ชื่อผู้ป่วย เก็บที่ Host (NVS)
+ *  7) Drop factor ใช้ค่าของแต่ละเตียง (10/15/20/60) แทนค่าคงที่ 20
+ *  8) นับหยดรายนาทีจากผลต่าง totalDrops -> แพ็กเก็ตหายไม่ทำให้ข้อมูลหาย
+ *  9) SoftAP ล็อก Channel 1
+ * 10) Deep sleep ใช้ ext0 wakeup (esp_deep_sleep_enable_gpio_wakeup ไม่รองรับ ESP32-S3)
+ * 11) ปุ่ม POWER กดสั้นขณะมีเสียงเตือน = พักเสียง 2 นาที (Snooze)
+ * ============================================================================
+ */
+
+#include <WiFi.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
+#include <WebServer.h>
+#include <Preferences.h>
+#include <ESPmDNS.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
+#include <SPI.h>
+#include <time.h>
+#include <sys/time.h>
+#include <driver/rtc_io.h>
+
+#define APP_VERSION         "4.8.0-TFT"
+#define DEV_NAME            "กิตติพันธ์ รัตนคร"
+#define DEV_ROLE            "นักวิชาการคอมพิวเตอร์"
+#define DEV_INSTITUTION     "มหาวิทยาลัยมหาจุฬาลงกรณราชวิทยาลัย วิทยาเขตแพร่"
+
+// ----------------------------------------------------------------------------
+// กำหนดขาเชื่อมต่อฮาร์ดแวร์ฝั่ง Host
+// ----------------------------------------------------------------------------
+#define HOST_BAT_ADC_PIN    1   // ขาอ่านแบตเตอรี่ Host
+#define POWER_BTN_PIN       4   // ปุ่มเปิด-ปิดหน้าจอ / พักเสียงเตือน (Snooze) — ต้องเป็น RTC GPIO (0-21)
+#define PAGE_BTN_PIN        5   // ปุ่มเปลี่ยนหน้าจอ / ดับเบิ้ลคลิกเรียก Screensaver
+#define BUZZER_PIN          7   // ขาต่อลำโพง Passive Buzzer
+
+// ---- จอ TFT 2.8" ST7789V (SPI 14 ขา ไม่มีทัช) ----
+// ต่อสาย: VCC->3V3, GND->GND, SCL/SCK->TFT_SCLK, SDA/MOSI->TFT_MOSI,
+//         RES->TFT_RST, DC->TFT_DC, CS->TFT_CS, BLK->TFT_BLK (หรือต่อ 3V3 ตลอดแล้วตั้ง -1)
+// หมายเหตุ: บอร์ด N16R8 ใช้ GPIO33-37 กับ PSRAM ห้ามนำมาใช้
+#define TFT_CS              10
+#define TFT_DC              9
+#define TFT_RST             8
+#define TFT_MOSI            11
+#define TFT_SCLK            12
+#define TFT_BLK             13  // -1 = ไม่ได้ต่อขาควบคุมไฟหน้าจอ
+#define TFT_ROTATION        1   // 1 = แนวนอน 320x240 (ถ้าภาพกลับหัวให้ใช้ 3)
+
+// ----------------------------------------------------------------------------
+// ค่าคงที่ของระบบสื่อสารและการแจ้งเตือน (ต้องตรงกับ Station)
+// ----------------------------------------------------------------------------
+#define ESPNOW_CHANNEL          1        // ช่อง SoftAP / ESP-NOW เริ่มต้น
+#define SYNC_INTERVAL_MS        1000     // ส่ง Sync ให้ Station ทุก 1 วินาที
+#define ONLINE_TIMEOUT_MS       5000     // ไม่ได้รับข้อมูลเกิน 5 วินาที = OFFLINE
+#define MIN_OCCLUSION_MS        8000     // เวลาต่ำสุดที่ไม่มีหยดก่อนถือว่าหยุดไหล
+#define MAX_OCCLUSION_MS        300000   // เพดานเวลาตัดสินหยุดไหล (อัตราต่ำมาก)
+#define RATE_DEVIATION_HOLD_MS  20000    // เร็ว/ช้าเกินต่อเนื่อง 20 วินาทีจึงเตือน
+#define SNOOZE_MS               120000   // พักเสียง 2 นาที
+#define NEAR_END_REMIND_MS      300000   // เตือนใกล้หมดซ้ำทุก 5 นาทีจนกว่าจะรับทราบ
+#define SCREENSAVER_IDLE_MS     300000   // ไม่มีการกดปุ่ม 5 นาที -> เข้าโหมดนาฬิกา
+#define MANUAL_FOCUS_HOLD_MS    60000    // เลือกเตียงเองแล้วคงไว้ 1 นาที ก่อนกลับเป็นอัตโนมัติ
+#define DEFAULT_NEAR_END_PCT    80       // เตือนเมื่อให้ไปแล้ว 80% ของปริมาตรตามแผน
+#define AP_MAX_CLIENTS          8        // จำนวนสมาร์ตโฟน/แท็บเล็ตที่ต่อพร้อมกันได้ (สูงสุด 10)
+#define TIME_BACKUP_INTERVAL_MS 600000   // สำรองเวลาปัจจุบันลง NVS ทุก 10 นาที
+
+// รหัสแจ้งเตือน (ใช้ร่วมกันทั้ง Host / Station / Web)
+#define ALERT_NONE        0
+#define ALERT_TOO_FAST    1
+#define ALERT_TOO_SLOW    2
+#define ALERT_NEAR_END    3   // ให้ไปแล้วถึง % ที่ตั้ง (เตือนเบา ไม่ใช่เหตุวิกฤต)
+#define ALERT_COMPLETE    4   // ให้ครบตามแผนแล้ว
+#define ALERT_OCCLUSION   5   // สายพับ / หยุดไหล
+
+SPIClass SPI_TFT(FSPI);
+Adafruit_ST7789 tft = Adafruit_ST7789(&SPI_TFT, TFT_CS, TFT_DC, TFT_RST);
+
+const char *default_ap_ssid = "ESP32_Liquid_Monitor";
+const char *default_ap_pass = "12345678";
+const char *web_username    = "admin";
+const char *web_password    = "password123";
+
+// เขตเวลาไทย (ICT UTC+7) — ตั้งค่าในตัวเครื่อง ไม่พึ่ง NTP อีกต่อไป
+const char* TZ_THAILAND     = "ICT-7";
+
+#define MAX_SUPPORTED_STATIONS 8
+#define MAX_LOGS 60
+
+WebServer server(80);
+Preferences preferences;
+portMUX_TYPE dataMux = portMUX_INITIALIZER_UNLOCKED;
+
+uint8_t activeStationCount  = 5;
+int  manualFocusBed         = -1;      // เตียงที่ผู้ใช้เลือกดูเอง (-1 = อัตโนมัติ)
+unsigned long manualFocusUntil = 0;
+bool displaySleeping        = false;
+bool screensaverActive      = false;
+bool isPowerOffProgressActive = false;
+
+// ---- โหมดของหน้าจอ ----
+#define UI_MODE_MAIN    0
+#define UI_MODE_ALARM   1
+#define UI_MODE_SAVER   2
+#define UI_MODE_POWER   3
+
+int   uiMode           = -1;
+int   uiFocusDrawn     = -1;
+int   uiRowsDrawn      = -1;
+String cacheClock      = "";
+String cacheTopRight   = "";
+String cacheFocusHead  = "";
+String cacheStatusWord = "";
+String cacheRate       = "";
+String cacheSetRate    = "";
+String cacheSummary    = "";
+String cacheBottom     = "";
+int    cachePct        = -999;
+String cacheSide[MAX_SUPPORTED_STATIONS];
+String cacheAlarmRate  = "";
+
+unsigned long lastUserActivityTime = 0;
+bool isTimeSynced           = false;   // ตั้งเวลาจากเครื่องผู้ใช้ผ่านหน้าเว็บแล้ว
+bool isTimeApprox           = false;   // กู้เวลาจากที่สำรองไว้ตอนบูต (ยังไม่ซิงก์ใหม่)
+unsigned long lastTimeBackup = 0;
+
+uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+// ----------------------------------------------------------------------------
+// โครงสร้างข้อมูลรับ-ส่ง ESP-NOW (Protocol v2) — ต้องเหมือนกับ Station ทุกไบต์
+// ----------------------------------------------------------------------------
+typedef struct __attribute__((packed)) struct_message {
+  uint8_t  stationId;
+  uint8_t  isRunning;
+  uint32_t totalDrops;
+  uint32_t periodDrops;
+  float    flowRateHr;       // อัตราไหลที่ Station คำนวณจากช่วงห่างระหว่างหยด (mL/h)
+  uint32_t msSinceLastDrop;  // มิลลิวินาทีนับจากหยดล่าสุด (0 = ยังไม่มีหยด)
+  float    batteryVolts;     // 0 = ไม่มีวงจรวัดแบตเตอรี่
+  uint8_t  flags;            // bit0 = พยาบาลกดรับทราบเตือนใกล้หมดที่เตียง
+} struct_message;            // 23 bytes
+
+typedef struct __attribute__((packed)) struct_host_sync {
+  uint32_t epochTime;
+  uint8_t  isSynced;
+  uint8_t  stationId;
+  float    targetRateHr;
+  float    totalPlanMl;
+  uint8_t  alertCode;
+  uint8_t  dropFactor;
+  uint8_t  resetSeq;         // เปลี่ยนค่าเมื่อกด "เริ่มถุงใหม่" -> Station รีเซ็ตตัวนับ
+  uint8_t  hostChannel;
+  uint8_t  nearEndPct;       // % ของปริมาตรตามแผนที่เริ่มเตือนใกล้หมด
+  uint8_t  flags;            // bit0 = รับทราบเตือนใกล้หมดแล้ว
+} struct_host_sync;          // 20 bytes
+
+static_assert(sizeof(struct_message) == 23, "struct_message must be 23 bytes (match Station)");
+static_assert(sizeof(struct_host_sync) == 20, "struct_host_sync must be 20 bytes (match Station)");
+
+struct LogEntry {
+  uint32_t minuteIndex;
+  char timeStr[20];
+  uint16_t drops;
+  float volume;
+  float rateHr;
+  float targetRate;
+  uint8_t alertCode;
+  int8_t rssi;
+  float battery;
+};
+
+struct BedConfig {
+  float   targetRateHr = 0.0f;
+  float   planVolumeMl = 0.0f;
+  uint8_t dropFactor   = 20;
+  uint8_t resetSeq     = 0;
+  char    patientName[64] = "";
+};
+
+struct TrialCaseRecord {
+  bool active = false;
+  uint8_t caseNumber = 1;
+  char startTimeStr[24] = "";
+  float targetRate = 0.0;
+  float planVolume = 0.0;
+  float actualVolume = 0.0;
+  float errorMl = 0.0;
+  float errorPercent = 0.0;
+};
+
+struct StationData {
+  bool active = false;
+  bool isRunning = true;
+  int8_t rssi = -100;
+  float batteryVolts = 0.0;
+  uint32_t totalDrops = 0;
+  uint32_t lastTotalDrops = 0;
+  bool hasBaseline = false;
+  uint32_t dropsInCurrentMinute = 0;
+  float totalVolumeMl = 0.0;
+  float flowRate_ml_hr = 0.0;
+  uint32_t msSinceLastDrop = 0;
+  unsigned long lastRecvTime = 0;
+  uint8_t alertCode = ALERT_NONE;
+  unsigned long deviationSince = 0;
+  uint8_t nearEndPct = DEFAULT_NEAR_END_PCT;   // เก็บแยก key ใน NVS เพื่อไม่ให้ค่าตั้งเดิมหาย
+  bool nearEndAck = false;
+  unsigned long nearNextChime = 0;
+
+  BedConfig cfg;
+  TrialCaseRecord trialCase;
+  LogEntry logs[MAX_LOGS];
+  uint8_t logCount = 0;
+};
+
+StationData stations[MAX_SUPPORTED_STATIONS];
+unsigned long lastCalcTime           = 0;
+unsigned long lastMinuteLogTime      = 0;
+unsigned long lastOledUpdateTime     = 0;
+unsigned long lastSyncBroadcastTime  = 0;
+unsigned long globalSnoozeUntil      = 0;
+uint32_t globalMinuteCounter         = 0;
+
+float hostBatteryVolts = 4.2;
+int hostBatteryPct = 100;
+
+bool globalAlarmTriggered            = false;
+unsigned long lastBuzzerAlarmTime    = 0;
+uint8_t nearChimeRemaining           = 0;
+unsigned long nearChimeNextBeep      = 0;
+
+void updateHostDisplay();
+void setDisplaySleep(bool sleep);
+int  currentFocusBed();
+void drawPowerOffProgress(int pct);
+void drawGoodbyeScreen();
+
+// ----------------------------------------------------------------------------
+// ฟังก์ชันช่วย
+// ----------------------------------------------------------------------------
+uint8_t safeDropFactor(uint8_t df) {
+  return (df == 10 || df == 15 || df == 20 || df == 60) ? df : 20;
+}
+
+bool isCriticalAlert(uint8_t code) {
+  return code == ALERT_TOO_FAST || code == ALERT_TOO_SLOW ||
+         code == ALERT_COMPLETE || code == ALERT_OCCLUSION;
+}
+
+uint8_t safeNearPct(uint8_t p) {
+  return (p >= 50 && p <= 95) ? p : DEFAULT_NEAR_END_PCT;
+}
+
+bool isSnoozed() {
+  return globalSnoozeUntil > 0 && millis() < globalSnoozeUntil;
+}
+
+bool isStationOnline(int i) {
+  unsigned long lr = stations[i].lastRecvTime;
+  if (lr == 0) return false;
+  unsigned long now = millis();
+  return (now < lr) || (now - lr < ONLINE_TIMEOUT_MS);
+}
+
+// เกณฑ์เวลา "ไม่มีหยด" = 2.5 เท่าของช่วงหยดตามเป้าหมาย (ขั้นต่ำ 8 วินาที) — สูตรเดียวกับ Station
+uint32_t occlusionThresholdMs(float rateHr, uint8_t df) {
+  if (rateHr <= 0.0f) return MIN_OCCLUSION_MS;
+  float dropsPerHr = rateHr * (float)df;
+  uint32_t expected = (uint32_t)(3600000.0f / dropsPerHr);
+  uint32_t th = (expected * 5) / 2;
+  if (th < MIN_OCCLUSION_MS) th = MIN_OCCLUSION_MS;
+  if (th > MAX_OCCLUSION_MS) th = MAX_OCCLUSION_MS;
+  return th;
+}
+
+bool isStationOccluded(int i) {
+  const StationData &s = stations[i];
+  if (!isStationOnline(i) || !s.isRunning || s.totalDrops == 0 || s.msSinceLastDrop == 0) return false;
+  unsigned long age = millis() - s.lastRecvTime;
+  uint32_t since = s.msSinceLastDrop + (uint32_t)age;
+  return since > occlusionThresholdMs(s.cfg.targetRateHr, safeDropFactor(s.cfg.dropFactor));
+}
+
+const char* alertTextEn(uint8_t code) {
+  switch (code) {
+    case ALERT_TOO_FAST:  return "TOO FAST";
+    case ALERT_TOO_SLOW:  return "TOO SLOW";
+    case ALERT_NEAR_END:  return "NEXT BAG";
+    case ALERT_COMPLETE:  return "BAG EMPTY";
+    case ALERT_OCCLUSION: return "OCCLUSION";
+    default:              return "NORMAL";
+  }
+}
+
+String jsonEscape(const char* s) {
+  String o;
+  for (const char* p = s; *p; p++) {
+    char c = *p;
+    if (c == '"' || c == '\\') { o += '\\'; o += c; }
+    else if ((uint8_t)c < 0x20) o += ' ';
+    else o += c;
+  }
+  return o;
+}
+
+uint8_t currentWifiChannel() {
+  uint8_t primary = 0;
+  wifi_second_chan_t second;
+  esp_wifi_get_channel(&primary, &second);
+  return primary;
+}
+
+// ----------------------------------------------------------------------------
+// ค่าตั้งเตียง (เก็บถาวรใน NVS)
+// ----------------------------------------------------------------------------
+void loadBedConfigs() {
+  preferences.begin("bed-cfg", true);
+  for (int i = 0; i < MAX_SUPPORTED_STATIONS; i++) {
+    char key[6];
+    snprintf(key, sizeof(key), "b%d", i + 1);
+    if (preferences.getBytesLength(key) == sizeof(BedConfig)) {
+      preferences.getBytes(key, &stations[i].cfg, sizeof(BedConfig));
+      stations[i].cfg.dropFactor = safeDropFactor(stations[i].cfg.dropFactor);
+      stations[i].cfg.patientName[sizeof(stations[i].cfg.patientName) - 1] = '\0';
+    }
+    char pkey[6];
+    snprintf(pkey, sizeof(pkey), "p%d", i + 1);
+    stations[i].nearEndPct = safeNearPct(preferences.getUChar(pkey, DEFAULT_NEAR_END_PCT));
+    stations[i].trialCase.active     = stations[i].cfg.planVolumeMl > 0;
+    stations[i].trialCase.planVolume = stations[i].cfg.planVolumeMl;
+    stations[i].trialCase.targetRate = stations[i].cfg.targetRateHr;
+  }
+  preferences.end();
+}
+
+void saveBedConfig(int idx) {
+  char key[6];
+  snprintf(key, sizeof(key), "b%d", idx + 1);
+  preferences.begin("bed-cfg", false);
+  preferences.putBytes(key, &stations[idx].cfg, sizeof(BedConfig));
+  char pkey[6];
+  snprintf(pkey, sizeof(pkey), "p%d", idx + 1);
+  preferences.putUChar(pkey, stations[idx].nearEndPct);
+  preferences.end();
+}
+
+// ----------------------------------------------------------------------------
+// ระบบเวลาและการซิงก์ข้อมูล
+// ----------------------------------------------------------------------------
+String getFormattedDateTime() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, 10)) {
+    char buf[24];
+    snprintf(buf, sizeof(buf), "Min-%04u", (unsigned)globalMinuteCounter);
+    return String(buf);
+  }
+  char buf[24];
+  strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
+  return String(buf);
+}
+
+String getDisplayClockStr() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, 10)) return "--:--";
+  char buf[12];
+  strftime(buf, sizeof(buf), "%H:%M", &timeinfo);
+  return String(buf);
+}
+
+// นาฬิกาพร้อมใช้งานหรือยัง (ตั้งจากเครื่องผู้ใช้ หรือกู้จากค่าที่สำรองไว้)
+bool hasValidClock() {
+  time_t now;
+  time(&now);
+  return now > 1600000000;
+}
+
+// บันทึกเวลาปัจจุบันลง NVS เพื่อกู้คืนเมื่อไฟดับ (ไม่มี RTC สำรองในบอร์ด)
+void backupClockToNvs() {
+  time_t now;
+  time(&now);
+  if (now <= 1600000000) return;
+  preferences.begin("sys-config", false);
+  preferences.putUInt("lastEpoch", (uint32_t)now);
+  preferences.end();
+}
+
+void broadcastSyncToNodes() {
+  time_t now;
+  time(&now);
+  uint8_t ch = currentWifiChannel();
+
+  for (int i = 0; i < activeStationCount; i++) {
+    struct_host_sync syncMsg = {};
+    syncMsg.epochTime    = (now > 1600000000) ? (uint32_t)now : 0;
+    syncMsg.isSynced     = (now > 1600000000) ? 1 : 0;
+    syncMsg.stationId    = i + 1;
+    syncMsg.targetRateHr = stations[i].cfg.targetRateHr;
+    syncMsg.totalPlanMl  = stations[i].cfg.planVolumeMl;
+    syncMsg.alertCode    = stations[i].alertCode;
+    syncMsg.dropFactor   = safeDropFactor(stations[i].cfg.dropFactor);
+    syncMsg.resetSeq     = stations[i].cfg.resetSeq;
+    syncMsg.hostChannel  = ch;
+    syncMsg.nearEndPct   = safeNearPct(stations[i].nearEndPct);
+    syncMsg.flags        = stations[i].nearEndAck ? 0x01 : 0x00;
+
+    esp_err_t r = esp_now_send(broadcastAddress, (uint8_t *)&syncMsg, sizeof(syncMsg));
+    if (r != ESP_OK) {
+      delay(10);
+      esp_now_send(broadcastAddress, (uint8_t *)&syncMsg, sizeof(syncMsg));
+    }
+    delay(4);
+  }
+}
+
+float readHostBattery() {
+  int raw = analogRead(HOST_BAT_ADC_PIN);
+  float volts = (raw / 4095.0) * 3.3 * 2.0;
+  if (volts > 4.25) volts = 4.2;
+  if (volts < 2.5) volts = 0.0;
+  return volts;
+}
+
+int calculateBatteryPct(float volts) {
+  if (volts <= 0.5) return 100;
+  int pct = (int)(((volts - 3.2) / (4.2 - 3.2)) * 100.0);
+  if (pct > 100) pct = 100;
+  if (pct < 0) pct = 0;
+  return pct;
+}
+
+void playWelcomeMelody() {
+  int melody[] = { 523, 659, 784, 1046 };
+  int durations[] = { 80, 80, 80, 200 };
+  for (int i = 0; i < 4; i++) {
+    tone(BUZZER_PIN, melody[i], durations[i]);
+    delay(durations[i] + 30);
+  }
+  noTone(BUZZER_PIN);
+}
+
+void playShutdownMelody() {
+  int melody[] = { 1046, 784, 659, 523 };
+  int durations[] = { 80, 80, 80, 250 };
+  for (int i = 0; i < 4; i++) {
+    tone(BUZZER_PIN, melody[i], durations[i]);
+    delay(durations[i] + 30);
+  }
+  noTone(BUZZER_PIN);
+}
+
+// ----------------------------------------------------------------------------
+// ระบบควบคุม Power & Deep Sleep (ESP32-S3 ใช้ ext0 wakeup)
+// ----------------------------------------------------------------------------
+void enterDeepSleepWaitPowerButton() {
+  rtc_gpio_pullup_en((gpio_num_t)POWER_BTN_PIN);
+  rtc_gpio_pulldown_dis((gpio_num_t)POWER_BTN_PIN);
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)POWER_BTN_PIN, 0);
+  esp_deep_sleep_start();
+}
+
+void powerOffSystem() {
+  isPowerOffProgressActive = true;
+
+  drawGoodbyeScreen();
+
+  playShutdownMelody();
+
+  while (digitalRead(POWER_BTN_PIN) == LOW) delay(20);
+  delay(200);
+
+  tft.fillScreen(0x0000);
+#if TFT_BLK >= 0
+  digitalWrite(TFT_BLK, LOW);
+#endif
+
+  server.stop();
+  esp_now_deinit();
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+
+  enterDeepSleepWaitPowerButton();
+}
+
+// ----------------------------------------------------------------------------
+// ประเมินสภาวะเตือนภัย (Host เป็นผู้ตัดสินจุดเดียว)
+// ----------------------------------------------------------------------------
+void evaluateClinicalAlerts() {
+  bool anyCritical = false;
+  unsigned long now = millis();
+
+  for (int i = 0; i < activeStationCount; i++) {
+    StationData &s = stations[i];
+    if (!isStationOnline(i) || !s.isRunning) {
+      s.alertCode = ALERT_NONE;
+      s.deviationSince = 0;
+      continue;
+    }
+
+    float tr   = s.cfg.targetRateHr;
+    float act  = s.flowRate_ml_hr;
+    float vol  = s.totalVolumeMl;
+    float plan = s.cfg.planVolumeMl;
+    uint8_t code = ALERT_NONE;
+
+    if (isStationOccluded(i)) {
+      code = ALERT_OCCLUSION;
+      s.deviationSince = 0;
+    } else if (plan > 0 && vol >= plan) {
+      code = ALERT_COMPLETE;
+      s.deviationSince = 0;
+    } else {
+      bool rateValid = (act > 0.0f) && (s.totalDrops >= 3);
+      uint8_t devCode = ALERT_NONE;
+      if (tr > 0 && rateValid && act > tr * 1.35f)      devCode = ALERT_TOO_FAST;
+      else if (tr > 0 && rateValid && act < tr * 0.65f) devCode = ALERT_TOO_SLOW;
+
+      if (devCode != ALERT_NONE) {
+        if (s.deviationSince == 0) s.deviationSince = now;
+        if (now - s.deviationSince >= RATE_DEVIATION_HOLD_MS) code = devCode;
+      } else {
+        s.deviationSince = 0;
+      }
+
+      if (code == ALERT_NONE && plan > 0 && vol >= plan * (float)safeNearPct(s.nearEndPct) / 100.0f) code = ALERT_NEAR_END;
+    }
+
+    s.alertCode = code;
+    if (isCriticalAlert(code)) anyCritical = true;
+  }
+
+  // ถ้าไม่มีเหตุวิกฤตแล้ว ยกเลิก snooze เพื่อให้เหตุการณ์ครั้งถัดไปดังทันที
+  if (!anyCritical) globalSnoozeUntil = 0;
+  globalAlarmTriggered = anyCritical;
+}
+
+bool anyNearEndPending() {
+  for (int i = 0; i < activeStationCount; i++) {
+    if (stations[i].alertCode == ALERT_NEAR_END && !stations[i].nearEndAck) return true;
+  }
+  return false;
+}
+
+void acknowledgeAllNearEnd() {
+  for (int i = 0; i < activeStationCount; i++) {
+    if (stations[i].alertCode == ALERT_NEAR_END) stations[i].nearEndAck = true;
+  }
+  nearChimeRemaining = 0;
+}
+
+// เสียงเตือนใกล้หมด: 3 ครั้งสั้น ๆ ต่อเตียง ซ้ำทุก 5 นาทีจนกว่าจะรับทราบ (ไม่ดังทับเหตุวิกฤต)
+void handleNearEndChime() {
+  unsigned long now = millis();
+  if (globalAlarmTriggered && !isSnoozed()) { nearChimeRemaining = 0; return; }
+
+  if (nearChimeRemaining == 0) {
+    for (int i = 0; i < activeStationCount; i++) {
+      StationData &s = stations[i];
+      if (s.alertCode != ALERT_NEAR_END || s.nearEndAck) { s.nearNextChime = 0; continue; }
+      if (s.nearNextChime == 0 || now >= s.nearNextChime) {
+        s.nearNextChime = now + NEAR_END_REMIND_MS;
+        nearChimeRemaining = 3;
+        nearChimeNextBeep = now;
+        break;
+      }
+    }
+  }
+  if (nearChimeRemaining > 0 && now >= nearChimeNextBeep) {
+    tone(BUZZER_PIN, 2000, 70);
+    nearChimeNextBeep = now + 220;
+    nearChimeRemaining--;
+  }
+}
+
+void handleBuzzerAlarm() {
+  static uint8_t beepPhase = 0;
+  if (!globalAlarmTriggered || isSnoozed()) {
+    beepPhase = 0;
+    handleNearEndChime();
+    return;
+  }
+
+  unsigned long now = millis();
+  if (beepPhase == 0 && now - lastBuzzerAlarmTime >= 2500) {
+    tone(BUZZER_PIN, 1500, 100);
+    lastBuzzerAlarmTime = now;
+    beepPhase = 1;
+  } else if (beepPhase == 1 && now - lastBuzzerAlarmTime >= 200) {
+    tone(BUZZER_PIN, 1500, 100);
+    beepPhase = 0;
+  }
+}
+
+void checkSmartphonePowerButton() {
+  static unsigned long btnPressStart = 0;
+  static unsigned long lastProgressFrameTime = 0;
+  static bool isHolding = false;
+
+  int btnState = digitalRead(POWER_BTN_PIN);
+
+  if (btnState == LOW) {
+    if (!isHolding) {
+      btnPressStart = millis();
+      isHolding = true;
+    }
+
+    unsigned long holdDuration = millis() - btnPressStart;
+
+    if (holdDuration >= 450 && !displaySleeping) {
+      isPowerOffProgressActive = true;
+
+      if (millis() - lastProgressFrameTime >= 60) {
+        lastProgressFrameTime = millis();
+        int progressPct = map(holdDuration, 450, 2000, 0, 100);
+        drawPowerOffProgress(progressPct);
+      }
+    }
+
+    if (holdDuration >= 2000) powerOffSystem();
+  }
+  else {
+    if (isHolding) {
+      unsigned long totalHoldTime = millis() - btnPressStart;
+      lastUserActivityTime = millis();
+
+      if (totalHoldTime < 400 && globalAlarmTriggered && !isSnoozed()) {
+        // กดสั้นขณะมีเสียงเตือน = พักเสียง 2 นาที
+        globalSnoozeUntil = millis() + SNOOZE_MS;
+        noTone(BUZZER_PIN);
+        tone(BUZZER_PIN, 2200, 40);
+        if (displaySleeping) setDisplaySleep(false);
+        screensaverActive = false;
+        isPowerOffProgressActive = false;
+        uiMode = -1;
+        updateHostDisplay();
+      } else if (totalHoldTime < 400 && anyNearEndPending()) {
+        // กดสั้นขณะมีเตือนใกล้หมดที่ยังไม่รับทราบ = รับทราบทุกเตียง
+        acknowledgeAllNearEnd();
+        tone(BUZZER_PIN, 2600, 40);
+        if (displaySleeping) setDisplaySleep(false);
+        screensaverActive = false;
+        isPowerOffProgressActive = false;
+        uiMode = -1;
+        updateHostDisplay();
+      } else if (screensaverActive) {
+        screensaverActive = false;
+        isPowerOffProgressActive = false;
+        uiMode = -1;
+        updateHostDisplay();
+      } else if (totalHoldTime < 400) {
+        setDisplaySleep(!displaySleeping);
+        tone(BUZZER_PIN, 1800, 25);
+        if (!displaySleeping) {
+          isPowerOffProgressActive = false;
+          updateHostDisplay();
+        }
+      }
+      else if (isPowerOffProgressActive && !displaySleeping) {
+        isPowerOffProgressActive = false;
+        uiMode = -1;
+        updateHostDisplay();
+      }
+      isPowerOffProgressActive = false;
+      isHolding = false;
+      btnPressStart = 0;
+    }
+  }
+}
+
+void checkPageButton() {
+  static bool isPageHolding = false;
+  static int clickCount = 0;
+  static unsigned long lastReleaseTime = 0;
+
+  int reading = digitalRead(PAGE_BTN_PIN);
+  unsigned long now = millis();
+
+  if (reading == LOW) {
+    if (!isPageHolding) { isPageHolding = true; }
+  } else {
+    if (isPageHolding) {
+      isPageHolding = false;
+      clickCount++;
+      lastReleaseTime = now;
+    }
+  }
+
+  if (clickCount > 0 && (now - lastReleaseTime > 280)) {
+    lastUserActivityTime = now;
+    if (displaySleeping) setDisplaySleep(false);
+    if (screensaverActive) {
+      screensaverActive = false;              // ปลุกจอก่อน
+    } else if (clickCount >= 2) {
+      screensaverActive = true;               // ดับเบิลคลิก = โหมดนาฬิกา
+    } else {
+      // คลิกเดียว = เลื่อนไปดูเตียงถัดไปเอง (กลับเป็นอัตโนมัติเมื่อครบเวลาหรือมีเหตุใหม่)
+      int base = (manualFocusBed >= 0) ? manualFocusBed : currentFocusBed();
+      manualFocusBed = (base + 1) % activeStationCount;
+      manualFocusUntil = now + MANUAL_FOCUS_HOLD_MS;
+      tone(BUZZER_PIN, 2400, 15);
+    }
+    uiMode = -1;
+    updateHostDisplay();
+    clickCount = 0;
+  }
+}
+
+// ----------------------------------------------------------------------------
+// ESP-NOW Receive Callback
+// ----------------------------------------------------------------------------
+#if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingDataBytes, int len) {
+  int8_t pktRssi = (info && info->rx_ctrl) ? info->rx_ctrl->rssi : -60;
+#else
+void OnDataRecv(const uint8_t *mac, const uint8_t *incomingDataBytes, int len) {
+  int8_t pktRssi = -60;
+#endif
+  if (len != sizeof(struct_message)) return;
+
+  struct_message incoming;
+  memcpy(&incoming, incomingDataBytes, sizeof(incoming));
+  if (incoming.stationId < 1 || incoming.stationId > MAX_SUPPORTED_STATIONS) return;
+
+  int idx = incoming.stationId - 1;
+  portENTER_CRITICAL(&dataMux);
+  StationData &s = stations[idx];
+
+  // นับหยดรายนาทีจากผลต่าง totalDrops (แพ็กเก็ตหายก็ไม่ทำให้หยดหาย)
+  if (s.hasBaseline) {
+    uint32_t delta = (incoming.totalDrops >= s.lastTotalDrops)
+                     ? (incoming.totalDrops - s.lastTotalDrops)
+                     : incoming.totalDrops;   // Station รีเซ็ต/รีบูต
+    s.dropsInCurrentMinute += delta;
+  } else {
+    s.hasBaseline = true;
+  }
+  s.lastTotalDrops  = incoming.totalDrops;
+
+  s.active          = true;
+  s.isRunning       = (incoming.isRunning != 0);
+  s.rssi            = pktRssi;
+  s.batteryVolts    = incoming.batteryVolts;
+  s.totalDrops      = incoming.totalDrops;
+  s.flowRate_ml_hr  = s.isRunning ? incoming.flowRateHr : 0.0f;
+  s.msSinceLastDrop = incoming.msSinceLastDrop;
+  s.totalVolumeMl   = (float)s.totalDrops / (float)safeDropFactor(s.cfg.dropFactor);
+  s.lastRecvTime    = millis();
+  if ((incoming.flags & 0x01) && s.cfg.planVolumeMl > 0) s.nearEndAck = true;
+
+  if (s.trialCase.active) {
+    s.trialCase.actualVolume = s.totalVolumeMl;
+    s.trialCase.errorMl = s.trialCase.actualVolume - s.trialCase.planVolume;
+    if (s.trialCase.planVolume > 0) {
+      s.trialCase.errorPercent = (s.trialCase.errorMl / s.trialCase.planVolume) * 100.0;
+    }
+  }
+  portEXIT_CRITICAL(&dataMux);
+}
+
+// ----------------------------------------------------------------------------
+// Host OLED Display & Block-Style UI Renderer
+// ----------------------------------------------------------------------------
+// ============================================================================
+// ส่วนแสดงผลบนจอ TFT 2.8" (ST7789V 240x320 ใช้แนวนอน 320x240)
+//   หน้าหลัก FOCUS : เตียงที่ต้องดูตอนนี้ตัวใหญ่ครึ่งจอซ้าย + รายการเตียงอื่นด้านขวา
+//   จอเตือนเต็มจอ  : เมื่อมีเหตุวิกฤตและยังไม่พักเสียง
+//   Screensaver    : นาฬิกาใหญ่เมื่อไม่มีการใช้งาน
+// วาดเฉพาะส่วนที่ค่าเปลี่ยน เพื่อไม่ให้จอกะพริบและไม่กิน CPU ตอนรับ ESP-NOW
+// ============================================================================
+
+// ---- สีที่ใช้บนจอ (RGB565) ----
+#define C_BG        0x0000
+#define C_CARD      0x18C5   // การ์ดพื้นเทาเข้ม
+#define C_BAR       0x2104   // รางแถบความคืบหน้า
+#define C_OFFCARD   0x1082   // การ์ดเตียงออฟไลน์/ยังไม่ใช้งาน
+#define C_TOPBAR    0x0A49   // แถบบนสุด
+#define C_LINE      0x39E7
+#define C_DIM       0x8410
+#define C_WHITE     0xFFFF
+#define C_GREEN     0x2FEB
+#define C_CYAN      0x07FF
+#define C_YELLOW    0xFFE0
+#define C_ORANGE    0xFD20
+#define C_RED       0xF800
+#define C_SKY       0x5DFF
+
+// ---- สถานะของเตียงสำหรับการแสดงผล ----
+enum BedUiStatus { BU_NORMAL = 0, BU_FAST, BU_SLOW, BU_NOFLOW, BU_NEAREND, BU_DONE, BU_PAUSED, BU_OFFLINE };
+
+BedUiStatus bedUiStatus(int i) {
+  if (!isStationOnline(i)) return BU_OFFLINE;
+  const StationData &s = stations[i];
+  if (!s.isRunning) return BU_PAUSED;
+  switch (s.alertCode) {
+    case ALERT_OCCLUSION: return BU_NOFLOW;
+    case ALERT_TOO_FAST:  return BU_FAST;
+    case ALERT_TOO_SLOW:  return BU_SLOW;
+    case ALERT_COMPLETE:  return BU_DONE;
+    case ALERT_NEAR_END:  return BU_NEAREND;
+    default:              return BU_NORMAL;
+  }
+}
+
+uint16_t bedColor(BedUiStatus s) {
+  switch (s) {
+    case BU_NORMAL:  return C_GREEN;
+    case BU_FAST:    return C_ORANGE;
+    case BU_SLOW:    return C_YELLOW;
+    case BU_NOFLOW:  return C_RED;
+    case BU_NEAREND: return C_ORANGE;
+    case BU_DONE:    return C_CYAN;
+    case BU_PAUSED:  return C_SKY;
+    default:         return C_LINE;
+  }
+}
+
+const char* bedWord(BedUiStatus s) {
+  switch (s) {
+    case BU_NORMAL:  return "NORMAL";
+    case BU_FAST:    return "TOO FAST";
+    case BU_SLOW:    return "TOO SLOW";
+    case BU_NOFLOW:  return "NO FLOW";
+    case BU_NEAREND: return "NEXT BAG";
+    case BU_DONE:    return "COMPLETE";
+    case BU_PAUSED:  return "PAUSED";
+    default:         return "OFFLINE";
+  }
+}
+
+bool bedIsAlarm(BedUiStatus s) {
+  return s == BU_FAST || s == BU_SLOW || s == BU_NOFLOW || s == BU_DONE;
+}
+
+// ---- ตัวช่วยวางข้อความ (ฟอนต์มาตรฐาน: 1 ตัวอักษร = 6xsize กว้าง, 8xsize สูง) ----
+void textAt(const String &s, int x, int y, uint8_t size, uint16_t col, uint16_t bg) {
+  tft.setTextSize(size);
+  tft.setTextColor(col, bg);
+  tft.setCursor(x, y);
+  tft.print(s);
+}
+
+void textRight(const String &s, int xRight, int y, uint8_t size, uint16_t col, uint16_t bg) {
+  textAt(s, xRight - (int)s.length() * 6 * size, y, size, col, bg);
+}
+
+void textCenterIn(const String &s, int x, int w, int y, uint8_t size, uint16_t col, uint16_t bg) {
+  textAt(s, x + (w - (int)s.length() * 6 * size) / 2, y, size, col, bg);
+}
+
+String padTo(const String &s, unsigned int width) {
+  String out = s;
+  while (out.length() < width) out += ' ';
+  return out;
+}
+
+void drawProgressBar(int x, int y, int w, int h, int pct, uint16_t fill) {
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  tft.fillRoundRect(x, y, w, h, h / 2, C_BAR);
+  int fw = w * pct / 100;
+  if (fw >= h) tft.fillRoundRect(x, y, fw, h, h / 2, fill);
+  else if (fw > 0) tft.fillRect(x, y, fw, h, fill);
+}
+
+void drawWifiIcon(int x, int y, int clients) {
+  int h[4] = {3, 6, 9, 12};
+  for (int i = 0; i < 4; i++) tft.fillRect(x + i * 4, y + (12 - h[i]), 3, h[i], (clients > i) ? C_GREEN : C_LINE);
+}
+
+void drawBatteryIcon(int x, int y, int pct) {
+  tft.drawRoundRect(x, y, 22, 11, 2, C_DIM);
+  tft.fillRect(x + 22, y + 3, 2, 5, C_DIM);
+  tft.fillRect(x + 2, y + 2, 18, 7, C_BG);
+  uint16_t c = (pct <= 20) ? C_RED : (pct <= 50 ? C_YELLOW : C_GREEN);
+  int w = (18 * pct) / 100;
+  if (w > 0) tft.fillRect(x + 2, y + 2, w, 7, c);
+}
+
+// ---- ข้อมูลของเตียงที่ใช้บ่อย ----
+int bedPct(int i) {
+  const StationData &s = stations[i];
+  if (s.cfg.planVolumeMl <= 0) return -1;
+  int p = (int)(s.totalVolumeMl * 100.0f / s.cfg.planVolumeMl + 0.5f);
+  return (p > 100) ? 100 : p;
+}
+
+int bedMinutesLeft(int i) {
+  const StationData &s = stations[i];
+  if (s.cfg.planVolumeMl <= 0 || !isStationOnline(i) || !s.isRunning) return -1;
+  if (s.alertCode == ALERT_OCCLUSION) return -1;   // สายพับ/ไม่มีการไหล คำนวณเวลาที่เหลือไม่ได้
+  float left = s.cfg.planVolumeMl - s.totalVolumeMl;
+  if (left < 0) left = 0;
+  float rate = (s.flowRate_ml_hr > 5.0f) ? s.flowRate_ml_hr : s.cfg.targetRateHr;
+  if (rate <= 0) return -1;
+  return (int)((left / rate) * 60.0f);
+}
+
+// เตียงที่ควรถูกเน้น: เหตุวิกฤตมาก่อน ตามด้วยใกล้หมดถุง ไม่มีเลยจึงใช้เตียงที่ผู้ใช้เลือกไว้
+int autoFocusBed() {
+  for (int i = 0; i < activeStationCount; i++) if (bedIsAlarm(bedUiStatus(i))) return i;
+  for (int i = 0; i < activeStationCount; i++)
+    if (stations[i].alertCode == ALERT_NEAR_END && !stations[i].nearEndAck) return i;
+  return -1;
+}
+
+int currentFocusBed() {
+  int a = autoFocusBed();
+  if (a >= 0) return a;
+  if (manualFocusBed >= 0 && manualFocusBed < activeStationCount) return manualFocusBed;
+  return 0;
+}
+
+// ---------------------------------------------------------------- ผังหน้าจอ
+#define SCR_W       320
+#define SCR_H       240
+#define TOPBAR_H    24
+#define PANEL_X     5
+#define PANEL_Y     30
+#define PANEL_W     190
+#define PANEL_H     188
+#define SIDE_X      200
+#define SIDE_W      115
+#define BOTBAR_Y    222
+#define BOTBAR_H    18
+
+void resetUiCaches() {
+  cacheClock = ""; cacheTopRight = ""; cacheFocusHead = ""; cacheStatusWord = "";
+  cacheRate = ""; cacheSetRate = ""; cacheSummary = ""; cacheBottom = ""; cacheAlarmRate = "";
+  cachePct = -999;
+  for (int i = 0; i < MAX_SUPPORTED_STATIONS; i++) cacheSide[i] = "";
+  uiFocusDrawn = -1;
+  uiRowsDrawn = -1;
+}
+
+// ---- แถบบนสุด: ชื่อเครื่อง | นาฬิกา | จำนวนเครื่องที่ต่อ Wi-Fi + แบตเตอรี่ ----
+void drawTopBarFramework() {
+  tft.fillRect(0, 0, SCR_W, TOPBAR_H, C_TOPBAR);
+  tft.fillRect(0, TOPBAR_H, SCR_W, 2, C_LINE);
+  textAt("SMART IV HOST", 8, 8, 1, C_SKY, C_TOPBAR);
+}
+
+void updateTopBar() {
+  String clockStr = getDisplayClockStr();
+  if (clockStr != cacheClock) {
+    cacheClock = clockStr;
+    textCenterIn(clockStr, 0, SCR_W, 6, 2, isTimeApprox ? C_YELLOW : C_WHITE, C_TOPBAR);
+  }
+  String right = String(WiFi.softAPgetStationNum()) + ":" + String(hostBatteryPct / 5);
+  if (right != cacheTopRight) {
+    cacheTopRight = right;
+    drawWifiIcon(SCR_W - 52, 6, (int)WiFi.softAPgetStationNum());
+    drawBatteryIcon(SCR_W - 30, 7, hostBatteryPct);
+  }
+}
+
+// ---- แถบสรุปเหตุการณ์ด้านล่าง ----
+void updateBottomBar() {
+  int alarm = -1, near = -1;
+  for (int i = 0; i < activeStationCount; i++) {
+    if (alarm < 0 && bedIsAlarm(bedUiStatus(i))) alarm = i;
+    if (near < 0 && stations[i].alertCode == ALERT_NEAR_END && !stations[i].nearEndAck) near = i;
+  }
+  int online = 0;
+  for (int i = 0; i < activeStationCount; i++) if (isStationOnline(i)) online++;
+
+  char buf[48];
+  uint16_t bg, fg;
+  if (alarm >= 0) {
+    snprintf(buf, sizeof(buf), "! BED %02d  %s  -  CHECK NOW", alarm + 1, alertTextEn(stations[alarm].alertCode));
+    bg = C_RED; fg = C_WHITE;
+  } else if (near >= 0) {
+    snprintf(buf, sizeof(buf), "BED %02d  PREPARE NEXT BAG", near + 1);
+    bg = C_ORANGE; fg = C_BG;
+  } else {
+    snprintf(buf, sizeof(buf), "ALL NORMAL   ONLINE %d/%d", online, activeStationCount);
+    bg = C_CARD; fg = C_GREEN;
+  }
+  String line = String(buf);
+  if (line == cacheBottom) return;
+  cacheBottom = line;
+  tft.fillRect(0, BOTBAR_Y, SCR_W, BOTBAR_H, bg);
+  textCenterIn(line, 0, SCR_W, BOTBAR_Y + 5, 1, fg, bg);
+}
+
+// ---- รายการเตียงด้านขวา ----
+void drawSideRow(int idx, int y, int rowH) {
+  BedUiStatus st = bedUiStatus(idx);
+  const StationData &s = stations[idx];
+  bool dim = (st == BU_OFFLINE);
+  uint16_t card = dim ? C_OFFCARD : C_CARD;
+  uint16_t sc = bedColor(st);
+
+  tft.fillRoundRect(SIDE_X, y, SIDE_W, rowH, 4, card);
+  tft.fillRect(SIDE_X, y, 4, rowH, sc);
+
+  char bed[8];
+  snprintf(bed, sizeof(bed), "B%02d", idx + 1);
+  String rateStr;
+  if (st == BU_OFFLINE)     rateStr = "OFF";
+  else if (st == BU_PAUSED) rateStr = "||";
+  else                      rateStr = String((int)(s.flowRate_ml_hr + 0.5f));
+
+  if (rowH >= 30) {
+    textAt(String(bed), SIDE_X + 8, y + 5, 2, dim ? C_DIM : C_WHITE, card);
+    textRight(rateStr, SIDE_X + SIDE_W - 6, y + 5, 2, bedIsAlarm(st) ? sc : (dim ? C_DIM : C_WHITE), card);
+    if (st != BU_OFFLINE) drawProgressBar(SIDE_X + 8, y + rowH - 9, SIDE_W - 16, 5, bedPct(idx),
+                                          (st == BU_NEAREND) ? C_ORANGE : C_CYAN);
+  } else {
+    textAt(String(bed), SIDE_X + 8, y + (rowH - 8) / 2, 1, dim ? C_DIM : C_WHITE, card);
+    textRight(rateStr, SIDE_X + SIDE_W - 6, y + (rowH - 16) / 2, 2, bedIsAlarm(st) ? sc : (dim ? C_DIM : C_WHITE), card);
+  }
+}
+
+void updateSideList(int focus, bool force) {
+  int n = activeStationCount - 1;
+  if (n <= 0) return;
+  int gap = 4;
+  int rowH = (PANEL_H - gap * (n - 1)) / n;
+  if (rowH > 40) rowH = 40;
+  if (rowH < 20) rowH = 20;
+  if (force || rowH != uiRowsDrawn) {
+    tft.fillRect(SIDE_X, PANEL_Y, SIDE_W, PANEL_H, C_BG);
+    uiRowsDrawn = rowH;
+    for (int i = 0; i < MAX_SUPPORTED_STATIONS; i++) cacheSide[i] = "";
+  }
+
+  int slot = 0;
+  for (int i = 0; i < activeStationCount; i++) {
+    if (i == focus) continue;
+    BedUiStatus st = bedUiStatus(i);
+    String key = String((int)st) + ":" + String((int)(stations[i].flowRate_ml_hr + 0.5f)) + ":" + String(bedPct(i));
+    if (key != cacheSide[i]) {
+      cacheSide[i] = key;
+      drawSideRow(i, PANEL_Y + slot * (rowH + gap), rowH);
+    }
+    slot++;
+  }
+}
+
+// ---- แผงเตียงหลักด้านซ้าย ----
+void drawFocusPanel(int focus, bool force) {
+  BedUiStatus st = bedUiStatus(focus);
+  const StationData &s = stations[focus];
+  uint16_t sc = bedColor(st);
+
+  char head[24];
+  snprintf(head, sizeof(head), "BED %02d", focus + 1);
+  String headKey = String(head) + "|" + String((int)st) + "|" + String(s.cfg.patientName);
+  if (force || headKey != cacheFocusHead) {
+    cacheFocusHead = headKey;
+    tft.fillRoundRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 6, C_CARD);
+    tft.fillRoundRect(PANEL_X, PANEL_Y, PANEL_W, 26, 6, sc);
+    tft.fillRect(PANEL_X, PANEL_Y + 18, PANEL_W, 8, sc);
+    textAt(String(head), PANEL_X + 7, PANEL_Y + 6, 2, C_BG, sc);
+    String name = String(s.cfg.patientName);
+    if (name.length() > 14) name = name.substring(0, 14);
+    textRight(name, PANEL_X + PANEL_W - 7, PANEL_Y + 8, 1, C_BG, sc);
+    cacheStatusWord = ""; cacheRate = ""; cacheSetRate = ""; cacheSummary = ""; cachePct = -999;
+  }
+
+  String word = String(bedWord(st));
+  if (word != cacheStatusWord) {
+    cacheStatusWord = word;
+    textAt(padTo(word, 9), PANEL_X + 9, 66, 2, sc, C_CARD);
+  }
+
+  String rateStr = (st == BU_OFFLINE) ? String("--") :
+                   (st == BU_PAUSED)  ? String("--") : String((int)(s.flowRate_ml_hr + 0.5f));
+  if (rateStr != cacheRate) {
+    cacheRate = rateStr;
+    tft.fillRect(PANEL_X + 9, 92, PANEL_W - 18, 48, C_CARD);
+    textAt(rateStr, PANEL_X + 9, 92, 6, bedIsAlarm(st) ? sc : C_WHITE, C_CARD);
+  }
+
+  String setStr = (s.cfg.targetRateHr > 0) ? ("SET " + String((int)(s.cfg.targetRateHr + 0.5f))) : String("SET --");
+  if (setStr != cacheSetRate) {
+    cacheSetRate = setStr;
+    textAt("mL/h", PANEL_X + 9, 148, 1, C_DIM, C_CARD);
+    textRight(padTo(setStr, 9), PANEL_X + PANEL_W - 9, 148, 1, C_SKY, C_CARD);
+  }
+
+  int pct = bedPct(focus);
+  if (pct != cachePct) {
+    cachePct = pct;
+    drawProgressBar(PANEL_X + 9, 168, PANEL_W - 18, 12, (pct < 0) ? 0 : pct,
+                    (st == BU_NEAREND) ? C_ORANGE : C_CYAN);
+  }
+
+  int left = (s.cfg.planVolumeMl > 0) ? (int)(s.cfg.planVolumeMl - s.totalVolumeMl) : -1;
+  if (left < 0 && s.cfg.planVolumeMl > 0) left = 0;
+  int mins = bedMinutesLeft(focus);
+  char tl[16];
+  if (mins >= 0) snprintf(tl, sizeof(tl), "%dh %02dm", mins / 60, mins % 60);
+  else           snprintf(tl, sizeof(tl), "--h --m");
+  String sum = String(pct) + "|" + String(left) + "|" + String(tl);
+  if (sum != cacheSummary) {
+    cacheSummary = sum;
+    tft.fillRect(PANEL_X + 7, 190, PANEL_W - 14, 10, C_CARD);
+    textAt(pct >= 0 ? (String(pct) + "%") : String("--"), PANEL_X + 9, 190, 1, C_DIM, C_CARD);
+    textCenterIn(left >= 0 ? (String(left) + " mL") : String("-- mL"), PANEL_X, PANEL_W, 190, 1, C_WHITE, C_CARD);
+    textRight(String(tl), PANEL_X + PANEL_W - 9, 190, 1, bedIsAlarm(st) ? sc : C_WHITE, C_CARD);
+  }
+}
+
+// ---- หน้าหลัก ----
+void drawMainFramework() {
+  tft.fillScreen(C_BG);
+  drawTopBarFramework();
+  resetUiCaches();
+}
+
+void updateMainScreen() {
+  int focus = currentFocusBed();
+  bool focusChanged = (focus != uiFocusDrawn);
+  uiFocusDrawn = focus;
+  updateTopBar();
+  drawFocusPanel(focus, focusChanged);
+  updateSideList(focus, focusChanged);
+  updateBottomBar();
+}
+
+// ---- จอเตือนเต็มจอ ----
+void drawAlarmFramework() {
+  int bed = autoFocusBed();
+  if (bed < 0) bed = 0;
+  const StationData &s = stations[bed];
+  uint8_t code = s.alertCode;
+
+  tft.fillScreen(C_RED);
+  tft.fillRoundRect(10, 8, 300, 40, 8, C_WHITE);
+  char head[24];
+  snprintf(head, sizeof(head), "BED %02d", bed + 1);
+  textAt(String(head), 22, 18, 3, C_RED, C_WHITE);
+  String name = String(s.cfg.patientName);
+  if (name.length() > 16) name = name.substring(0, 16);
+  textRight(name, 298, 24, 1, C_RED, C_WHITE);
+
+  const char* word = alertTextEn(code);
+  const char* sub  = "CHECK IV SYSTEM";
+  if (code == ALERT_OCCLUSION)     sub = "LINE BLOCKED - CHECK TUBING";
+  else if (code == ALERT_TOO_FAST) sub = "FLOW ABOVE TARGET - ADJUST CLAMP";
+  else if (code == ALERT_TOO_SLOW) sub = "FLOW BELOW TARGET - ADJUST CLAMP";
+  else if (code == ALERT_COMPLETE) sub = "INFUSION FINISHED";
+  textCenterIn(String(word), 0, SCR_W, 62, 4, C_WHITE, C_RED);
+  textCenterIn(String(sub), 0, SCR_W, 102, 1, C_YELLOW, C_RED);
+
+  tft.fillRoundRect(20, 122, 280, 66, 8, C_BG);
+  textAt("RATE", 32, 130, 1, C_DIM, C_BG);
+  textAt("mL/h", 32, 172, 1, C_DIM, C_BG);
+  textRight(s.cfg.targetRateHr > 0 ? ("SET " + String((int)(s.cfg.targetRateHr + 0.5f)) + " mL/h") : String("SET --"),
+            288, 172, 1, C_SKY, C_BG);
+  int pct = bedPct(bed);
+  textRight(pct >= 0 ? ("INFUSED " + String(pct) + "%") : String("INFUSED --"), 288, 130, 1, C_DIM, C_BG);
+
+  tft.fillRoundRect(10, 198, 300, 32, 8, C_WHITE);
+  textCenterIn("PRESS POWER = SNOOZE 2 MIN", 0, SCR_W, 208, 1, C_RED, C_WHITE);
+  cacheAlarmRate = "";
+}
+
+void updateAlarmScreen() {
+  int bed = autoFocusBed();
+  if (bed < 0) bed = 0;
+  String rate = String((int)(stations[bed].flowRate_ml_hr + 0.5f));
+  if (rate == cacheAlarmRate) return;
+  cacheAlarmRate = rate;
+  tft.fillRect(30, 140, 180, 32, C_BG);
+  textAt(rate, 32, 140, 4, C_WHITE, C_BG);
+}
+
+// ---- Screensaver: นาฬิกาใหญ่ ----
+void drawSaverFramework() {
+  tft.fillScreen(C_BG);
+  textCenterIn("SMART IV HOST", 0, SCR_W, 24, 1, C_DIM, C_BG);
+  textCenterIn("PRESS ANY BUTTON TO WAKE", 0, SCR_W, 210, 1, C_DIM, C_BG);
+  cacheClock = ""; cacheBottom = "";
+}
+
+void updateSaverScreen() {
+  String clockStr = getDisplayClockStr();
+  if (clockStr != cacheClock) {
+    cacheClock = clockStr;
+    textCenterIn(clockStr, 0, SCR_W, 76, 7, C_WHITE, C_BG);
+  }
+  int online = 0;
+  for (int i = 0; i < activeStationCount; i++) if (isStationOnline(i)) online++;
+  char buf[40];
+  snprintf(buf, sizeof(buf), "ONLINE %d/%d   ALL NORMAL", online, activeStationCount);
+  String line = String(buf);
+  if (line != cacheBottom) {
+    cacheBottom = line;
+    textCenterIn(line, 0, SCR_W, 156, 1, C_GREEN, C_BG);
+  }
+}
+
+// ---- ตัวควบคุมการแสดงผลทั้งหมด ----
+void updateHostDisplay() {
+  if (displaySleeping || isPowerOffProgressActive) return;
+
+  bool nearPending = anyNearEndPending();
+  if (!screensaverActive && !globalAlarmTriggered && !nearPending &&
+      (millis() - lastUserActivityTime >= SCREENSAVER_IDLE_MS)) {
+    screensaverActive = true;
+  }
+  // มีเหตุวิกฤต (ยังไม่พักเสียง) หรือเตือนใกล้หมดที่ยังไม่รับทราบ -> ออกจาก Screensaver
+  if (screensaverActive && ((globalAlarmTriggered && !isSnoozed()) || nearPending)) {
+    screensaverActive = false;
+  }
+
+  int mode = UI_MODE_MAIN;
+  if (screensaverActive) mode = UI_MODE_SAVER;
+  else if (globalAlarmTriggered && !isSnoozed()) mode = UI_MODE_ALARM;
+
+  if (mode != uiMode) {
+    uiMode = mode;
+    resetUiCaches();
+    if (mode == UI_MODE_SAVER)      drawSaverFramework();
+    else if (mode == UI_MODE_ALARM) drawAlarmFramework();
+    else                            drawMainFramework();
+  }
+
+  if (mode == UI_MODE_SAVER)      updateSaverScreen();
+  else if (mode == UI_MODE_ALARM) updateAlarmScreen();
+  else                            updateMainScreen();
+}
+
+// ---- หน้าจอเฉพาะกิจ: ปิดเครื่อง / กำลังกดค้าง / หน้าจอต้อนรับ ----
+void drawPowerOffProgress(int pct) {
+  if (uiMode != UI_MODE_POWER) {
+    uiMode = UI_MODE_POWER;
+    tft.fillScreen(C_BG);
+    textCenterIn("POWER OFF ?", 0, SCR_W, 70, 3, C_WHITE, C_BG);
+    textCenterIn("KEEP HOLDING TO TURN OFF", 0, SCR_W, 110, 1, C_DIM, C_BG);
+    tft.drawRoundRect(58, 138, 204, 24, 6, C_WHITE);
+  }
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  int w = (200 * pct) / 100;
+  tft.fillRect(60, 140, w, 20, C_RED);
+  tft.fillRect(60 + w, 140, 200 - w, 20, C_BG);
+}
+
+void drawGoodbyeScreen() {
+  uiMode = UI_MODE_POWER;
+  tft.fillScreen(C_BG);
+  textCenterIn("GOODBYE", 0, SCR_W, 80, 4, C_SKY, C_BG);
+  textCenterIn("RELEASE BUTTON TO TURN OFF", 0, SCR_W, 140, 1, C_DIM, C_BG);
+  textCenterIn("HOLD 2s TO POWER ON AGAIN", 0, SCR_W, 160, 1, C_DIM, C_BG);
+}
+
+void setDisplaySleep(bool sleep) {
+  displaySleeping = sleep;
+#if TFT_BLK >= 0
+  digitalWrite(TFT_BLK, sleep ? LOW : HIGH);
+#endif
+  if (sleep) {
+    tft.fillScreen(C_BG);
+  } else {
+    uiMode = -1;          // บังคับวาดกรอบใหม่ทั้งหมดเมื่อเปิดจอ
+    resetUiCaches();
+  }
+}
+
+void drawSplashScreen() {
+  tft.fillScreen(C_BG);
+  tft.fillRoundRect(30, 46, 260, 90, 10, C_TOPBAR);
+  textCenterIn("SMART IV", 0, SCR_W, 62, 4, C_WHITE, C_TOPBAR);
+  textCenterIn("CENTRAL HOST", 0, SCR_W, 104, 2, C_SKY, C_TOPBAR);
+  textCenterIn("Host v" APP_VERSION "   Protocol v3", 0, SCR_W, 156, 1, C_DIM, C_BG);
+  char buf[40];
+  snprintf(buf, sizeof(buf), "BEDS %d   AP %s", activeStationCount, default_ap_ssid);
+  textCenterIn(String(buf), 0, SCR_W, 176, 1, C_DIM, C_BG);
+  textCenterIn("BCN Phrae Innovation", 0, SCR_W, 200, 1, C_GREEN, C_BG);
+}
+
+// ----------------------------------------------------------------------------
+// REST APIs & Handlers
+// ----------------------------------------------------------------------------
+void handleApiData() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  String json;
+  json.reserve(3000);
+  json = "{";
+  json += "\"version\":\"" APP_VERSION "\",";
+  json += "\"activeCount\":" + String(activeStationCount) + ",";
+  json += "\"currentTime\":\"" + getFormattedDateTime() + "\",";
+  json += "\"timeSynced\":" + String(isTimeSynced ? "true" : "false") + ",";
+  json += "\"timeApprox\":" + String(isTimeApprox ? "true" : "false") + ",";
+  json += "\"apClients\":" + String(WiFi.softAPgetStationNum()) + ",";
+  json += "\"apMaxClients\":" + String(AP_MAX_CLIENTS) + ",";
+  json += "\"channel\":" + String(currentWifiChannel()) + ",";
+  json += "\"hostBatVolts\":" + String(hostBatteryVolts, 2) + ",";
+  json += "\"hostBatPct\":" + String(hostBatteryPct) + ",";
+  json += "\"snoozed\":" + String(isSnoozed() ? "true" : "false") + ",";
+  json += "\"stations\":[";
+  for (int i = 0; i < activeStationCount; i++) {
+    const StationData &s = stations[i];
+    bool isOnline = isStationOnline(i);
+    if (i > 0) json += ",";
+    json += "{";
+    json += "\"id\":" + String(i + 1) + ",";
+    json += "\"online\":" + String(isOnline ? "true" : "false") + ",";
+    json += "\"running\":" + String(s.isRunning ? "true" : "false") + ",";
+    json += "\"rssi\":" + String(isOnline ? s.rssi : 0) + ",";
+    json += "\"battery\":" + String(s.batteryVolts, 2) + ",";
+    json += "\"totalDrops\":" + String(s.totalDrops) + ",";
+    json += "\"volumeMl\":" + String(s.totalVolumeMl, 2) + ",";
+    json += "\"flowRateHr\":" + String(s.flowRate_ml_hr, 2) + ",";
+    json += "\"msSinceLastDrop\":" + String(s.msSinceLastDrop) + ",";
+    json += "\"targetRate\":" + String(s.cfg.targetRateHr, 1) + ",";
+    json += "\"planVolume\":" + String(s.cfg.planVolumeMl, 0) + ",";
+    json += "\"dropFactor\":" + String(safeDropFactor(s.cfg.dropFactor)) + ",";
+    json += "\"patientName\":\"" + jsonEscape(s.cfg.patientName) + "\",";
+    json += "\"alertCode\":" + String(s.alertCode) + ",";
+    json += "\"nearEndPct\":" + String(safeNearPct(s.nearEndPct)) + ",";
+    json += "\"nearEndAck\":" + String(s.nearEndAck ? "true" : "false") + ",";
+    json += "\"caseActive\":" + String(s.trialCase.active ? "true" : "false") + ",";
+    json += "\"caseStart\":\"" + String(s.trialCase.startTimeStr) + "\"";
+    json += "}";
+  }
+  json += "]}";
+  server.send(200, "application/json", json);
+}
+
+int parseStationArg() {
+  if (!server.hasArg("station")) return -1;
+  int st = server.arg("station").toInt();
+  if (st < 1 || st > MAX_SUPPORTED_STATIONS) return -1;
+  return st - 1;
+}
+
+// POST /api/stations/config  station, rate, volume, df, name (ส่งเฉพาะที่ต้องการเปลี่ยน)
+void handleStationConfig() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  int idx = parseStationArg();
+  if (idx < 0) { server.send(400, "text/plain", "Invalid station"); return; }
+
+  BedConfig &c = stations[idx].cfg;
+  if (server.hasArg("rate")) {
+    float r = server.arg("rate").toFloat();
+    if (r < 0 || r > 1000) { server.send(400, "text/plain", "Invalid rate"); return; }
+    c.targetRateHr = r;
+  }
+  if (server.hasArg("volume")) {
+    float v = server.arg("volume").toFloat();
+    if (v < 0 || v > 10000) { server.send(400, "text/plain", "Invalid volume"); return; }
+    c.planVolumeMl = v;
+  }
+  if (server.hasArg("df")) {
+    int df = server.arg("df").toInt();
+    if (df != 10 && df != 15 && df != 20 && df != 60) { server.send(400, "text/plain", "Invalid drop factor"); return; }
+    c.dropFactor = (uint8_t)df;
+  }
+  bool nearChanged = false;
+  float oldPlan = c.planVolumeMl;
+  if (server.hasArg("nearpct")) {
+    int np = server.arg("nearpct").toInt();
+    if (np < 50 || np > 95) { server.send(400, "text/plain", "Invalid near-end percent (50-95)"); return; }
+    if (np != stations[idx].nearEndPct) nearChanged = true;
+    stations[idx].nearEndPct = (uint8_t)np;
+  }
+  if (server.hasArg("name")) {
+    String n = server.arg("name");
+    strncpy(c.patientName, n.c_str(), sizeof(c.patientName) - 1);
+    c.patientName[sizeof(c.patientName) - 1] = '\0';
+  }
+  saveBedConfig(idx);
+
+  portENTER_CRITICAL(&dataMux);
+  StationData &s = stations[idx];
+  s.totalVolumeMl = (float)s.totalDrops / (float)safeDropFactor(c.dropFactor);
+  s.deviationSince = 0;
+  if (nearChanged || c.planVolumeMl != oldPlan) { s.nearEndAck = false; s.nearNextChime = 0; }
+  s.trialCase.active = c.planVolumeMl > 0;
+  s.trialCase.planVolume = c.planVolumeMl;
+  s.trialCase.targetRate = c.targetRateHr;
+  portEXIT_CRITICAL(&dataMux);
+
+  evaluateClinicalAlerts();
+  broadcastSyncToNodes();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// POST /api/stations/reset  station — เริ่มถุงใหม่: รีเซ็ตตัวนับที่ Host และสั่ง Station รีเซ็ต
+void handleStationReset() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  int idx = parseStationArg();
+  if (idx < 0) { server.send(400, "text/plain", "Invalid station"); return; }
+
+  String nowStr = getFormattedDateTime();
+  portENTER_CRITICAL(&dataMux);
+  StationData &s = stations[idx];
+  s.cfg.resetSeq++;
+  s.hasBaseline = false;          // แพ็กเก็ตถัดไปใช้เป็นฐานใหม่ ไม่นับเป็นหยดของนาทีนี้
+  s.totalDrops = 0;
+  s.totalVolumeMl = 0;
+  s.flowRate_ml_hr = 0;
+  s.msSinceLastDrop = 0;
+  s.dropsInCurrentMinute = 0;
+  s.alertCode = ALERT_NONE;
+  s.deviationSince = 0;
+  s.nearEndAck = false;
+  s.nearNextChime = 0;
+  s.logCount = 0;
+  s.trialCase.caseNumber++;
+  s.trialCase.actualVolume = 0;
+  s.trialCase.errorMl = 0;
+  s.trialCase.errorPercent = 0;
+  portEXIT_CRITICAL(&dataMux);
+  snprintf(s.trialCase.startTimeStr, sizeof(s.trialCase.startTimeStr), "%s", nowStr.c_str());
+
+  saveBedConfig(idx);
+  broadcastSyncToNodes();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// POST /api/stations/ack  station — รับทราบเตือนใกล้หมดจากหน้าเว็บ
+void handleStationAck() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  int idx = parseStationArg();
+  if (idx < 0) { server.send(400, "text/plain", "Invalid station"); return; }
+  stations[idx].nearEndAck = true;
+  broadcastSyncToNodes();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleSetStationCount() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  if (server.hasArg("count")) {
+    int count = server.arg("count").toInt();
+    if (count >= 1 && count <= MAX_SUPPORTED_STATIONS) {
+      activeStationCount = count;
+      preferences.begin("sys-config", false);
+      preferences.putUChar("bedCount", activeStationCount);
+      preferences.end();
+
+      if (manualFocusBed >= activeStationCount) manualFocusBed = -1;
+      uiMode = -1;                 // จำนวนเตียงเปลี่ยน -> วาดหน้าจอใหม่ทั้งหมด
+      updateHostDisplay();
+      server.send(200, "text/plain", "OK");
+      return;
+    }
+  }
+  server.send(400, "text/plain", "Invalid count");
+}
+
+void handleApiLogs() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  int st = 1;
+  if (server.hasArg("station")) st = server.arg("station").toInt();
+  if (st < 1 || st > activeStationCount) st = 1;
+  int idx = st - 1;
+
+  String json;
+  json.reserve(8000);
+  json = "{";
+  json += "\"stationId\":" + String(st) + ",";
+  json += "\"dropFactor\":" + String(safeDropFactor(stations[idx].cfg.dropFactor)) + ",";
+  json += "\"totalLogs\":" + String(stations[idx].logCount) + ",";
+  json += "\"logs\":[";
+  for (int i = 0; i < stations[idx].logCount; i++) {
+    const LogEntry &e = stations[idx].logs[i];
+    if (i > 0) json += ",";
+    json += "{";
+    json += "\"min\":" + String(e.minuteIndex) + ",";
+    json += "\"time\":\"" + String(e.timeStr) + "\",";
+    json += "\"drops\":" + String(e.drops) + ",";
+    json += "\"vol\":" + String(e.volume, 2) + ",";
+    json += "\"rate\":" + String(e.rateHr, 2) + ",";
+    json += "\"target\":" + String(e.targetRate, 1) + ",";
+    json += "\"alert\":" + String(e.alertCode) + ",";
+    json += "\"rssi\":" + String(e.rssi) + ",";
+    json += "\"battery\":" + String(e.battery, 2);
+    json += "}";
+  }
+  json += "]}";
+  server.send(200, "application/json", json);
+}
+
+void handleDownloadCSV() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  int st = 1;
+  if (server.hasArg("station")) st = server.arg("station").toInt();
+  if (st < 1 || st > activeStationCount) st = 1;
+  int idx = st - 1;
+
+  String csv = "\xEF\xBB\xBF";
+  csv += "Record_Index,Date_Time,Drops_Per_Min,Drop_Factor,Total_Volume_mL,Flow_Rate_mL_hr,Target_Rate_mL_hr,Plan_Volume_mL,Near_End_Alert_Pct,Alert_Code,Alert_Text,RSSI_dBm,Battery_Volts\r\n";
+  uint8_t df = safeDropFactor(stations[idx].cfg.dropFactor);
+  for (int i = 0; i < stations[idx].logCount; i++) {
+    const LogEntry &e = stations[idx].logs[i];
+    csv += String(e.minuteIndex) + ",";
+    csv += String(e.timeStr) + ",";
+    csv += String(e.drops) + ",";
+    csv += String(df) + ",";
+    csv += String(e.volume, 2) + ",";
+    csv += String(e.rateHr, 2) + ",";
+    csv += String(e.targetRate, 1) + ",";
+    csv += String(stations[idx].cfg.planVolumeMl, 0) + ",";
+    csv += String(safeNearPct(stations[idx].nearEndPct)) + ",";
+    csv += String(e.alertCode) + ",";
+    csv += String(alertTextEn(e.alertCode)) + ",";
+    csv += String(e.rssi) + ",";
+    csv += String(e.battery, 2) + "\r\n";
+  }
+
+  String filename = "IV_Report_Bed_" + String(st) + ".csv";
+  server.sendHeader("Content-Disposition", "attachment; filename=" + filename);
+  server.send(200, "text/csv; charset=utf-8", csv);
+}
+
+// ----------------------------------------------------------------------------
+// ข้อมูลจุดเชื่อมต่อ (อ่านอย่างเดียว) และการตั้งเวลาจากเครื่องของผู้ใช้
+// ----------------------------------------------------------------------------
+void handleApStatus() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  String json = "{";
+  json += "\"ssid\":\"" + jsonEscape(default_ap_ssid) + "\",";
+  json += "\"password\":\"" + jsonEscape(default_ap_pass) + "\",";
+  json += "\"apIP\":\"" + WiFi.softAPIP().toString() + "\",";
+  json += "\"channel\":" + String(currentWifiChannel()) + ",";
+  json += "\"clients\":" + String(WiFi.softAPgetStationNum()) + ",";
+  json += "\"maxClients\":" + String(AP_MAX_CLIENTS) + ",";
+  json += "\"currentTime\":\"" + getFormattedDateTime() + "\",";
+  json += "\"timeSynced\":" + String(isTimeSynced ? "true" : "false") + ",";
+  json += "\"timeApprox\":" + String(isTimeApprox ? "true" : "false");
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
+// หน้าเว็บส่งเวลาของเครื่องที่เปิดดู (epoch UTC) มาตั้งให้ Host แทนการใช้ NTP
+void handleTimeSet() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  if (!server.hasArg("epoch")) {
+    server.send(400, "text/plain", "Missing epoch");
+    return;
+  }
+  uint32_t epoch = (uint32_t)strtoul(server.arg("epoch").c_str(), NULL, 10);
+  if (epoch < 1600000000UL) {
+    server.send(400, "text/plain", "Bad epoch");
+    return;
+  }
+  struct timeval tv = { (time_t)epoch, 0 };
+  settimeofday(&tv, NULL);
+  isTimeSynced = true;
+  isTimeApprox = false;
+  backupClockToNvs();
+  lastTimeBackup = millis();
+  server.send(200, "text/plain", getFormattedDateTime().c_str());
+}
+
+const char PAGE_INDEX[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart IV Alert System v4.6.0</title>
+  <style>
+    :root {
+      --primary: #0072ff;
+      --primary-gradient: linear-gradient(135deg, #0072ff 0%, #00c6ff 100%);
+      --bg-color: #f0f4f9;
+      --card-bg: #ffffff;
+      --text-main: #2d3748;
+      --text-muted: #718096;
+      --border-color: #e2e8f0;
+      --green-bg: #e6fffa;
+      --green-text: #234e52;
+      --alarm-red: #fff5f5;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Sarabun", sans-serif; }
+    body { background-color: var(--bg-color); color: var(--text-main); padding-bottom: 35px; }
+
+    .header {
+      background: var(--primary-gradient);
+      color: white;
+      padding: 16px 22px;
+      box-shadow: 0 4px 12px rgba(0, 114, 255, 0.25);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .header-title { font-size: 20px; font-weight: 800; display: flex; align-items: center; }
+    .header-badge { font-size: 12px; background: rgba(255,255,255,0.25); padding: 3px 9px; border-radius: 6px; margin-left: 8px; }
+    .header-subtitle { font-size: 13.5px; opacity: 0.9; margin-top: 3px; display:flex; gap:12px; align-items:center; }
+    .host-bat-badge {
+      background: rgba(0,0,0,0.2);
+      border: 1px solid rgba(255,255,255,0.3);
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .wifi-btn {
+      background: rgba(255,255,255,0.25);
+      border: 1px solid rgba(255,255,255,0.4);
+      color: white;
+      padding: 9px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14.5px;
+      font-weight: 600;
+    }
+
+    .main-nav {
+      background: #ffffff;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      flex-wrap: wrap;
+    }
+    .nav-btn {
+      padding: 10px 18px;
+      border-radius: 12px;
+      border: none;
+      background: #f7fafc;
+      color: #4a5568;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .nav-btn.active {
+      background: var(--primary);
+      color: white;
+      box-shadow: 0 4px 10px rgba(0, 114, 255, 0.3);
+    }
+
+    .main-wrap { max-width: 1350px; margin: 22px auto; padding: 0 16px; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .station-control-bar {
+      background: #ffffff;
+      padding: 14px 20px;
+      border-radius: 14px;
+      margin-bottom: 20px;
+      border: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .scale-btn-group { display: flex; align-items: center; gap: 8px; }
+    .scale-btn {
+      background: #edf2f7;
+      border: 1px solid var(--border-color);
+      padding: 8px 16px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 14.5px;
+      color: #2d3748;
+      transition: all 0.2s;
+    }
+    .scale-btn:hover { background: #e2e8f0; }
+
+    .station-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 26px;
+    }
+    .station-card {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      border: 2px solid transparent;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .station-card:hover { transform: translateY(-2px); }
+    .station-card.selected {
+      border-color: var(--primary);
+      box-shadow: 0 6px 16px rgba(0, 114, 255, 0.2);
+      background: #f8fbff;
+    }
+    .station-card.paused-state {
+      border-color: #f59e0b !important;
+      background: #fffbeb !important;
+    }
+    .station-card.alarm-state {
+      background: var(--alarm-red) !important;
+      border-color: #e53e3e !important;
+      animation: pulseAlert 1.5s infinite;
+    }
+    @keyframes pulseAlert {
+      0% { box-shadow: 0 0 0 0 rgba(229, 62, 62, 0.4); }
+      70% { box-shadow: 0 0 0 10px rgba(229, 62, 62, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(229, 62, 62, 0); }
+    }
+
+    .station-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+    .station-title { font-weight: 800; font-size: 17px; display: flex; align-items: center; gap: 5px; color: #1a202c; }
+    .patient-label { font-size: 14.5px; font-weight: 600; color: var(--primary); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+
+    .badge-status { font-size: 11.5px; padding: 4px 9px; border-radius: 20px; font-weight: 700; }
+    .badge-online { background: #c6f6d5; color: #22543d; }
+    .badge-offline { background: #fed7d7; color: #742a2a; }
+    .badge-paused { background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
+    .badge-alarm { background: #e53e3e; color: white; }
+
+    .telemetry-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #f7fafc;
+      padding: 7px 12px;
+      border-radius: 8px;
+      margin-bottom: 11px;
+      font-size: 12px;
+    }
+    .signal-bars { display: flex; align-items: flex-end; gap: 2px; height: 13px; }
+    .signal-bars .bar { width: 4px; background: #e2e8f0; border-radius: 1px; }
+    .signal-bars .b1 { height: 25%; }
+    .signal-bars .b2 { height: 50%; }
+    .signal-bars .b3 { height: 75%; }
+    .signal-bars .b4 { height: 100%; }
+
+    .signal-bars.lvl-4 .b1, .signal-bars.lvl-4 .b2, .signal-bars.lvl-4 .b3, .signal-bars.lvl-4 .b4 { background: #38a169; }
+    .signal-bars.lvl-3 .b1, .signal-bars.lvl-3 .b2, .signal-bars.lvl-3 .b3 { background: #3182ce; }
+    .signal-bars.lvl-2 .b1, .signal-bars.lvl-2 .b2 { background: #dd6b20; }
+    .signal-bars.lvl-1 .b1 { background: #e53e3e; }
+
+    .stat-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 14px; }
+    .stat-row .val { font-weight: 700; color: #1a202c; }
+
+    .compare-box {
+      background: #edf2f7;
+      border-radius: 8px;
+      padding: 7px 10px;
+      margin-top: 9px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .calc-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+      gap: 22px;
+      margin-bottom: 26px;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 22px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+      border: 1px solid var(--border-color);
+      margin-bottom: 22px;
+    }
+    .card-title { font-size: 18px; font-weight: 700; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 14.5px; font-weight: 600; margin-bottom: 7px; color: var(--text-muted); }
+    .input-field {
+      width: 100%;
+      padding: 11px 15px;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      font-size: 16.5px;
+      background: #fafafa;
+      outline: none;
+    }
+    .pill-group { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 15px; }
+    .pill-btn {
+      flex: 1;
+      min-width: 55px;
+      padding: 9px 13px;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      background: #fff;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14.5px;
+      text-align: center;
+    }
+    .pill-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+    .btn-group { display: flex; gap: 11px; margin-top: 18px; }
+    .btn {
+      flex: 1;
+      padding: 13px;
+      border-radius: 12px;
+      font-size: 15.5px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-secondary { background: #edf2f7; color: #4a5568; }
+    .btn-green { background: #38a169; color: white; }
+    .btn-orange { background: #dd6b20; color: white; }
+    .btn-danger { background: #e53e3e; color: white; }
+    .badge-warn { background: #feebc8; color: #7b341e; border: 1px solid #dd6b20; }
+    .station-card.warn-state { border-color: #dd6b20 !important; background: #fffaf0 !important; }
+    .progress-track { height: 7px; background: #e2e8f0; border-radius: 4px; overflow: hidden; margin: 4px 0 8px; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #0072ff, #00c6ff); }
+    .ack-btn { margin-top: 10px; width: 100%; padding: 9px; border: 0; border-radius: 10px; background: #dd6b20; color: #fff; font-weight: 700; font-size: 14.5px; cursor: pointer; }
+    .near-line { font-size: 12.5px; color: #9c4221; margin-top: 4px; }
+    .sync-note { font-size: 12.5px; color: var(--text-muted); margin-top: 10px; line-height: 1.5; }
+
+    .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 15px; }
+    .metric-card {
+      background: #f7fafc;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+    }
+    .metric-card .title { font-size: 13.5px; color: var(--text-muted); }
+    .metric-card .val { font-size: 24.5px; font-weight: 800; color: var(--primary); margin: 5px 0; }
+    .metric-card .sub { font-size: 12px; color: #a0aec0; }
+
+    .highlight-card {
+      background: var(--green-bg);
+      color: var(--green-text);
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 14px;
+      text-align: center;
+    }
+    .highlight-card .big-text { font-size: 20px; font-weight: 800; }
+    .highlight-card .sub-text { font-size: 12px; }
+
+    .chamber-box {
+      height: 185px;
+      background: #fff;
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .iv-tube-top { width: 6px; height: 20px; background: #cbd5e0; }
+    .iv-chamber { width: 40px; height: 80px; border: 2px solid #a0aec0; border-radius: 10px 10px 20px 20px; position: relative; }
+    .iv-nozzle { width: 4px; height: 10px; background: #718096; margin: 0 auto; }
+    .iv-pool { position: absolute; bottom: 0; width: 100%; height: 18px; background: #63b3ed; border-radius: 0 0 18px 18px; }
+    .drop {
+      width: 8px; height: 12px; background: #3182ce; border-radius: 50%; position: absolute; left: 16px; top: 12px; opacity: 0;
+    }
+    .drop.animate { animation: fall linear infinite; }
+    @keyframes fall {
+      0% { top: 12px; opacity: 1; }
+      80% { top: 58px; opacity: 1; }
+      100% { top: 62px; opacity: 0; }
+    }
+    .sim-status-text { font-size: 13.5px; color: var(--text-muted); margin-top: 9px; }
+
+    .tab-bar {
+      display: flex;
+      gap: 9px;
+      margin-bottom: 18px;
+      overflow-x: auto;
+      padding-bottom: 5px;
+    }
+    .tab-item {
+      padding: 9px 18px;
+      border-radius: 10px;
+      background: #edf2f7;
+      color: #4a5568;
+      font-weight: 700;
+      font-size: 14.5px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .tab-item.active { background: var(--primary); color: white; }
+
+    .chart-container { position: relative; width: 100%; height: 290px; margin-bottom: 22px; }
+    canvas { width: 100% !important; height: 100% !important; background: #fafcff; border-radius: 12px; border: 1px solid var(--border-color); }
+
+    .table-container { max-height: 420px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 12px; }
+    .log-table { width: 100%; border-collapse: collapse; font-size: 14.5px; text-align: left; }
+    .log-table th { background: #f8fafc; color: #4a5568; font-weight: 700; padding: 13px 15px; position: sticky; top: 0; border-bottom: 2px solid var(--border-color); }
+    .log-table td { padding: 11px 15px; border-bottom: 1px solid var(--border-color); color: #2d3748; }
+    .log-table tr:hover { background: #f7fafc; }
+
+    /* แท็บ About & Research Team */
+    .about-header-box {
+      background: #ffffff;
+      padding: 24px;
+      border-radius: 16px;
+      border: 1px solid var(--border-color);
+      margin-bottom: 20px;
+    }
+    .about-header-box h2 { font-size: 20px; color: var(--text-main); margin-bottom: 10px; }
+    .about-header-box p { color: var(--text-muted); font-size: 14.5px; line-height: 1.6; }
+    
+    .team-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 900px) {
+      .team-grid { grid-template-columns: 1fr; }
+    }
+    .team-card {
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 22px;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.02);
+    }
+    .team-card-title { font-size: 17px; font-weight: 800; color: var(--primary); margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+    
+    .unified-member-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 16px;
+    }
+    @media (max-width: 600px) {
+      .unified-member-grid { grid-template-columns: 1fr; }
+    }
+    .member-item {
+      padding: 8px 0;
+      border-bottom: 1px dashed #edf2f7;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .member-item .sid { color: var(--text-muted); font-size: 12.5px; font-family: monospace; }
+
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; justify-content: center; align-items: center; }
+    .modal-content { background: white; width: 90%; max-width: 440px; padding: 26px; border-radius: 16px; font-size: 14.5px; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1 class="header-title">
+        🏥 Smart IV Alert Central System
+        <span class="header-badge">v4.6.0</span>
+      </h1>
+      <div class="header-subtitle">
+        <span id="netStatusSubtitle">AP: 192.168.4.1 · กำลังตรวจสอบ...</span>
+        <span>🕒 เวลา: <b id="hostClockDisplay">กำลังซิงก์...</b></span>
+      </div>
+    </div>
+    <div style="display:flex; gap:9px; align-items:center;">
+      <div class="host-bat-badge" id="hostBatDisplay">🔋 Host: 100%</div>
+      <button class="wifi-btn" id="audioToggleBtn" onclick="toggleAudioMute()">🔔 เปิดเสียงเตือน</button>
+      <button class="wifi-btn" onclick="openApModal()">📶 จุดเชื่อมต่อ</button>
+    </div>
+  </div>
+
+  <div class="main-nav">
+    <button class="nav-btn active" onclick="switchMainTab('tab-live', this)">🛏️ Live Monitor</button>
+    <button class="nav-btn" onclick="switchMainTab('tab-graphs', this)">📈 Visual Graphs (1 ชม.)</button>
+    <button class="nav-btn" onclick="switchMainTab('tab-logs', this)">📋 Log & Shift Report</button>
+    <button class="nav-btn" onclick="switchMainTab('tab-about', this)">👥 เกี่ยวกับงานวิจัย & คณะผู้จัดทำ</button>
+  </div>
+
+  <div class="main-wrap">
+    <div id="tab-live" class="tab-content active">
+      <div class="station-control-bar">
+        <span style="font-weight:700; font-size:16.5px; color:#2d3748;">
+          🛏️ สถานะภาพรวมสารน้ำ (<span id="activeBedCountLabel">5</span> เตียง)
+        </span>
+        <div class="scale-btn-group">
+          <span style="font-size:14px; color:var(--text-muted); margin-right:4px;">ปรับจำนวนเตียง:</span>
+          <button class="scale-btn" onclick="changeBedScale(-1)">➖ ลดเตียง</button>
+          <button class="scale-btn" onclick="changeBedScale(1)" style="background:var(--primary); color:#fff; border-color:var(--primary);">➕ เพิ่มเตียง</button>
+        </div>
+      </div>
+
+      <div class="station-grid" id="stationGridContainer"></div>
+
+      <div style="background:#ffffff; padding:16px 20px; border-radius:14px; margin-bottom:22px; border:1px solid var(--border-color); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+        <span style="font-weight:700; font-size:15.5px; color:#2d3748;">
+          ⚙️ เลือกเตียงที่ต้องการตั้งค่า: <span style="color:var(--primary); font-size:17.5px;" id="activeBedBadgeText">เตียง 1</span>
+        </span>
+        <div class="tab-bar" style="margin-bottom:0; padding-bottom:0;" id="calcBedSelectorTabs"></div>
+      </div>
+
+      <div class="calc-grid">
+        <div class="card">
+          <div class="card-title">
+            <span>📝 ข้อมูลผู้ป่วย & คำนวณอัตราหยด</span>
+            <span style="font-size:13.5px; color:var(--primary);" id="cardBedTag1">[เตียง 1]</span>
+          </div>
+          <div class="form-group">
+            <label>👤 ชื่อ-นามสกุล คนไข้ / หมายเหตุ</label>
+            <input type="text" id="patientNameInput" class="input-field" value="" placeholder="เช่น นายสมชาย ใจดี" oninput="onPatientNameChanged(this.value)" style="border-color:#cbd5e0; font-weight:600;">
+          </div>
+          <div class="form-group">
+            <label>ปริมาตรสารน้ำ (mL)</label>
+            <input type="number" id="volumeInput" class="input-field" value="1000" oninput="onInputChanged()">
+          </div>
+          <div class="form-group">
+            <label>เวลาให้สารน้ำ (ชั่วโมง)</label>
+            <input type="number" step="0.1" id="hoursInput" class="input-field" value="12.5" oninput="onInputChanged()">
+          </div>
+          <div class="form-group">
+            <label>Drop Factor (gtt/mL)</label>
+            <div class="pill-group">
+              <button class="pill-btn" onclick="setDropFactor(10, this)">10</button>
+              <button class="pill-btn" onclick="setDropFactor(15, this)">15</button>
+              <button class="pill-btn active" onclick="setDropFactor(20, this)">20</button>
+              <button class="pill-btn" onclick="setDropFactor(60, this)">60</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>เวลาเริ่มให้สารน้ำ</label>
+            <input type="time" id="startTimeInput" class="input-field" value="10:00" onchange="onInputChanged()">
+          </div>
+          <div class="btn-group">
+            <button class="btn btn-primary" onclick="calculateIVRate(true)">🧮 บันทึก & ส่งไป Host</button>
+            <button class="btn btn-danger" onclick="resetBedCounter()">🔄 เริ่มถุงใหม่</button>
+          </div>
+          <div class="sync-note" id="hostCfgNote">ค่าที่ Host ใช้อยู่: -</div>
+          <div class="sync-note" id="dirtyNote" style="color:#dd6b20; font-weight:600;"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>⏰ คำนวณเวลาที่ IV หมด</span>
+            <span style="font-size:13.5px; color:var(--primary);" id="cardBedTag2">[เตียง 1]</span>
+          </div>
+          <div class="form-group">
+            <label>ปริมาณสารน้ำทั้งหมด (mL)</label>
+            <input type="number" id="volTotalInput" class="input-field" value="1000" oninput="onInputChanged()">
+          </div>
+          <div class="form-group">
+            <label>Rate ตามออเดอร์ (mL/hr)</label>
+            <input type="number" id="orderRateInput" class="input-field" value="80" oninput="onInputChanged()">
+          </div>
+          <div class="form-group">
+            <label>แจ้งเตือนใกล้หมด เมื่อให้ไปแล้ว (% ของปริมาตรตามแผน)</label>
+            <input type="number" id="nearPctInput" class="input-field" value="80" min="50" max="95" step="5" oninput="onInputChanged()">
+            <div class="near-line" id="nearPctHint">จะเตือนเมื่อให้ไปแล้ว 800 mL</div>
+          </div>
+          <div class="form-group">
+            <label>เริ่มให้เวลา</label>
+            <input type="time" id="startTime2Input" class="input-field" value="10:10" onchange="onInputChanged()">
+          </div>
+          <div class="btn-group">
+            <button class="btn btn-primary" onclick="calculateEndTime(true)">🧮 บันทึก Rate & ส่งไป Host</button>
+          </div>
+          <div style="margin-top: 15px;">
+            <div class="highlight-card">
+              <div class="sub-text">สารน้ำจะหมดใน</div>
+              <div class="big-text" id="durationText">12 ชั่วโมง 30 นาที</div>
+              <div style="font-size: 14.5px; font-weight: bold; margin-top: 5px;" id="endTime2Text">หมดเวลา 22:40 น.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title" id="simTitle">💧 จำลองการหยด: Bed / Station 1</div>
+          <div class="result-grid">
+            <div class="metric-card">
+              <div class="title">เป้าหมาย (Target)</div>
+              <div class="val" id="gttMinDisplay">26.67</div>
+              <div class="sub">gtt/min</div>
+            </div>
+            <div class="metric-card">
+              <div class="title">เวลา/หยด</div>
+              <div class="val" id="secPerDropDisplay">2.25</div>
+              <div class="sub">วินาที/หยด</div>
+            </div>
+          </div>
+          <div class="chamber-box">
+            <div class="iv-tube-top"></div>
+            <div class="iv-chamber">
+              <div class="iv-nozzle"></div>
+              <div class="drop" id="dropElement"></div>
+              <div class="iv-pool"></div>
+            </div>
+            <div class="sim-status-text" id="simStatus">สถานะ: จำลองตามค่าคำนวณ</div>
+          </div>
+          <div class="btn-group">
+            <button class="btn btn-green" onclick="startDrip()">▶️ เริ่มจำลอง</button>
+            <button class="btn btn-orange" onclick="stopDrip()">⏸️ หยุด</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-graphs" class="tab-content">
+      <div class="card">
+        <div class="card-title">
+          <span>📈 กราฟวิเคราะห์แนวโน้มย้อนหลัง 60 นาที (Offline Native Canvas)</span>
+          <span style="font-size: 13.5px; font-weight: normal; color: var(--text-muted);">อัปเดตอัตโนมัติ</span>
+        </div>
+        <div class="tab-bar" id="graphBedSelectorTabs"></div>
+        <div class="result-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 18px;">
+          <div class="metric-card"><div class="title">Peak Rate</div><div class="val" style="color:#e53e3e;" id="graphPeakRate">0.0</div><div class="sub">mL/hr</div></div>
+          <div class="metric-card"><div class="title">Min Rate</div><div class="val" style="color:#3182ce;" id="graphMinRate">0.0</div><div class="sub">mL/hr</div></div>
+          <div class="metric-card"><div class="title">Avg Rate</div><div class="val" style="color:#2f855a;" id="graphAvgRate">0.0</div><div class="sub">mL/hr</div></div>
+          <div class="metric-card"><div class="title">Total (1 ชม.)</div><div class="val" style="color:#805ad5;" id="graphTotalVol">0.00</div><div class="sub">mL</div></div>
+        </div>
+        <h3 style="font-size:15.5px; margin-bottom:10px; color:#4a5568; font-weight:700;">⚡ อัตราการไหลสารน้ำ Flow Rate (mL/hr)</h3>
+        <div class="chart-container"><canvas id="flowRateCanvas"></canvas></div>
+        <h3 style="font-size:15.5px; margin-bottom:10px; color:#4a5568; font-weight:700;">💧 ปริมาณหยดน้ำต่อนาที Drops (drops/min)</h3>
+        <div class="chart-container"><canvas id="dropsCanvas"></canvas></div>
+      </div>
+    </div>
+
+    <div id="tab-logs" class="tab-content">
+      <div class="card">
+        <div class="card-title">
+          <span>📋 ตารางประวัติ 60 นาที & รายงานส่งเวร (Shift Report พร้อมเวลาจริง)</span>
+          <button class="btn btn-primary" style="width:auto; padding:9px 18px; font-size:14.5px;" onclick="downloadShiftCSV()">📥 ดาวน์โหลด CSV</button>
+        </div>
+        <div class="tab-bar" id="logBedSelectorTabs"></div>
+        <div class="result-grid" style="grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin-bottom: 15px;">
+          <div class="metric-card"><div class="title">หยดรวมใน 60 นาที</div><div class="val" id="logSumDrops">0</div><div class="sub">drops</div></div>
+          <div class="metric-card"><div class="title">ปริมาตรรวมใน 60 นาที</div><div class="val" id="logSumVolume">0.00</div><div class="sub">mL</div></div>
+          <div class="metric-card"><div class="title">Flow Rate เฉลี่ย</div><div class="val" id="logAvgRate">0.00</div><div class="sub">mL/hr</div></div>
+        </div>
+        <div class="table-container">
+          <table class="log-table">
+            <thead>
+              <tr>
+                <th>ลำดับ</th>
+                <th>วัน-เวลาบันทึก (Timestamp)</th>
+                <th>หยดในนาทีนั้น</th>
+                <th>ปริมาตรรวมสะสม</th>
+                <th>Rate เฉลี่ย</th>
+                <th>Target</th>
+                <th>สถานะแจ้งเตือน</th>
+                <th>สัญญาณ (RSSI)</th>
+                <th>แบตเตอรี่เตียง</th>
+              </tr>
+            </thead>
+            <tbody id="logTableBody">
+              <tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 22px;">กำลังรวบรวมข้อมูล...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-about" class="tab-content">
+      <div class="about-header-box">
+        <h2>🏥 โครงการวิจัย: ผลของการใช้นวัตกรรม Smart IV Alert ต่อความแม่นยำในการแจ้งเตือนและปริมาณสารน้ำที่ได้รับ</h2>
+        <p>
+          <b>พื้นที่ศึกษา:</b> หอผู้ป่วยอายุรกรรม โรงพยาบาลสูงเม่น อำเภอสูงเม่น จังหวัดแพร่<br>
+          <b>ระยะเวลาดำเนินการ:</b> 12 สัปดาห์ (มิถุนายน – กันยายน พ.ศ. 2569)<br>
+          <b>สถาบัน:</b> วิทยาลัยพยาบาลบรมราชชนนี แพร่ คณะพยาบาลศาสตร์ สถาบันพระบรมราชชนก
+        </p>
+      </div>
+
+      <div class="team-grid">
+        <div class="team-card">
+          <div class="team-card-title">👩‍⚕️ คณะผู้จัดทำงานวิจัย (นักศึกษาพยาบาลศาสตร์)</div>
+          <div class="unified-member-grid">
+            <div class="member-item"><span>1. น.ส.นภารัตน์ กุลแก้ว (หัวหน้าโครงการ)</span><span class="sid">67130301040</span></div>
+            <div class="member-item"><span>2. น.ส.จิราวรรณ ศรีสถาน</span><span class="sid">67130301015</span></div>
+            <div class="member-item"><span>3. น.ส.ชญาดา สมศรีษะ</span><span class="sid">67130301019</span></div>
+            <div class="member-item"><span>4. น.ส.ชนิสรา แก้วใส</span><span class="sid">67130301022</span></div>
+            <div class="member-item"><span>5. น.ส.ชลธาร ฮาดดา</span><span class="sid">67130301024</span></div>
+            <div class="member-item"><span>6. น.ส.นริสรา เครือคำมูล</span><span class="sid">67130301041</span></div>
+            <div class="member-item"><span>7. น.ส.ปริยากร เจริญสุข</span><span class="sid">67130301046</span></div>
+            <div class="member-item"><span>8. น.ส.ปิติพร เหล็กแจ้ง</span><span class="sid">67130301049</span></div>
+            <div class="member-item"><span>9. น.ส.พิริสา แก้วกู่</span><span class="sid">67130301061</span></div>
+            <div class="member-item"><span>10. น.ส.วรัญญา ผามารถเมือง</span><span class="sid">67130301077</span></div>
+            <div class="member-item"><span>11. น.ส.อมรลดา นาขาม</span><span class="sid">67130301106</span></div>
+            <div class="member-item"><span>12. น.ส.อารีรัตน์ จิตต์อารีย์</span><span class="sid">67130301110</span></div>
+          </div>
+        </div>
+
+        <div class="team-card">
+          <div class="team-card-title">🎓 อาจารย์ที่ปรึกษา & ฝ่ายวิศวกรรม</div>
+          <div style="font-size:14px; line-height:1.7; color:#2d3748;">
+            <b>อาจารย์ที่ปรึกษาโครงการวิจัย:</b><br>
+            • <b>ดร.กรรณิการ์ กาศสมบูรณ์</b><br>
+            <span style="color:var(--text-muted); font-size:12.5px;">รองผู้อำนวยการฝ่ายกิจการนักศึกษา<br>วิทยาลัยพยาบาลบรมราชชนนี แพร่</span>
+            <hr style="border:0; border-top:1px dashed var(--border-color); margin:12px 0;">
+            <b>ฝ่ายพัฒนาระบบวิศวกรรม & โครงข่าย IoT:</b><br>
+            • <b>นายกิตติพันธ์ รัตนคร</b> (นักวิชาการคอมพิวเตอร์)<br>
+            <span style="color:var(--text-muted); font-size:12.5px;">มหาวิทยาลัยมหาจุฬาลงกรณราชวิทยาลัย วิทยาเขตแพร่</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="apModal">
+    <div class="modal-content">
+      <h3 style="margin-bottom: 14px; font-size:17.5px;">📶 จุดเชื่อมต่อของเครื่อง Host</h3>
+      <div style="margin-bottom: 15px; background:#f7fafc; padding:12px; border-radius:10px; font-size:14.5px;" id="apDetailBox">กำลังโหลด...</div>
+      <div style="background:#fffaf0; border-left:4px solid #dd6b20; padding:11px 13px; border-radius:8px; font-size:13.5px; line-height:1.65;">
+        เครื่องนี้ทำงานเป็นจุดเชื่อมต่อในตัว <b>ไม่ต้องต่อ Wi-Fi ของโรงพยาบาลหรืออินเทอร์เน็ต</b><br>
+        ให้มือถือ/แท็บเล็ตเชื่อมต่อ Wi-Fi ชื่อข้างบน แล้วเปิด <b>http://192.168.4.1</b><br>
+        หากมือถือแจ้งว่า "ไม่มีอินเทอร์เน็ต" ให้เลือก <b>ใช้งานต่อ / ยังคงเชื่อมต่อ</b>
+      </div>
+      <div class="btn-group" style="margin-top:14px;"><button class="btn btn-secondary" onclick="closeApModal()">ปิด</button></div>
+    </div>
+  </div>
+
+  <script>
+    let activeBedCount = 5;
+    let maxSupportedBeds = 8;
+
+    const generateDefaultConfigs = () => {
+      const arr = [];
+      for (let i = 1; i <= maxSupportedBeds; i++) {
+        arr.push({
+          id: i,
+          patientName: '',
+          volume: 1000,
+          hours: 12.5,
+          dropFactor: 20,
+          startTime: "10:00",
+          volTotal: 1000,
+          orderRate: 80,
+          startTime2: "10:10",
+          gttMin: 26.67,
+          secPerDrop: 2.25,
+          durationText: "12 ชั่วโมง 30 นาที",
+          endTime2Text: "หมดเวลา 22:40 น.",
+          nearPct: 80
+        });
+      }
+      return arr;
+    };
+
+    let bedConfigs = JSON.parse(localStorage.getItem('iv_bed_configs_v460')) || generateDefaultConfigs();
+    function saveBedConfigs() { localStorage.setItem('iv_bed_configs_v460', JSON.stringify(bedConfigs)); }
+
+    let selectedStation = 1;
+    let activeLogTab = 1;
+    let activeGraphStation = 1;
+    let audioMuted = true;
+    let audioCtx = null;
+    let nameSyncTimer = null;
+    let skipHostSyncUntil = 0;
+    let lastHostData = null;
+    const dirtyBeds = new Set();   // เตียงที่แก้ค่าในฟอร์มแต่ยังไม่ได้ส่งไป Host
+
+    function updateNearPctHint() {
+      const cfg = bedConfigs[selectedStation - 1];
+      const el = document.getElementById('nearPctHint');
+      if (!el || !cfg) return;
+      const pct = cfg.nearPct || 80;
+      el.innerText = cfg.volTotal > 0
+        ? `จะเตือนเมื่อให้ไปแล้ว ${Math.round(cfg.volTotal * pct / 100)} mL (เหลือ ${Math.round(cfg.volTotal * (100 - pct) / 100)} mL)` +
+          (cfg.orderRate > 0 ? ` ประมาณ ${Math.round(cfg.volTotal * (100 - pct) / 100 / cfg.orderRate * 60)} นาทีก่อนหมด` : '')
+        : 'ยังไม่ได้ตั้งปริมาตรตามแผน';
+    }
+
+    function acknowledgeNearEnd(id, ev) {
+      if (ev) ev.stopPropagation();
+      fetch('/api/stations/ack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `station=${id}`
+      }).catch(e => alert('ส่งการรับทราบไม่สำเร็จ: ' + e.message));
+    }
+
+    function playNearEndChime() {
+      if (audioMuted) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        [0, 0.25, 0.5].forEach(t => {
+          const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+          osc.frequency.value = 1046;
+          gain.gain.setValueAtTime(0.15, audioCtx.currentTime + t);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + t + 0.18);
+          osc.connect(gain); gain.connect(audioCtx.destination);
+          osc.start(audioCtx.currentTime + t); osc.stop(audioCtx.currentTime + t + 0.2);
+        });
+      } catch (e) { console.log(e); }
+    }
+    const nearChimed = {};
+
+    function updateDirtyNote() {
+      const el = document.getElementById('dirtyNote');
+      if (el) el.innerText = dirtyBeds.has(selectedStation) ? '⚠️ มีค่าที่แก้ไขแต่ยังไม่ได้ส่งไป Host — กดปุ่ม "บันทึก ... ส่งไป Host"' : '';
+    }
+
+    const ALERT_META = {
+      0: { text: '● ปกติ',               cls: 'badge-online', card: '',            alarm: false },
+      1: { text: '⚠️ ไหลเร็วเกิน',        cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
+      2: { text: '⚠️ ไหลช้าเกิน',         cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
+      3: { text: '⏳ ใกล้หมด เตรียมถุงใหม่', cls: 'badge-warn',   card: 'warn-state',  alarm: false },
+      4: { text: '🛑 ให้ครบตามแผนแล้ว',   cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
+      5: { text: '⚠️ สายพับ/หยุดไหล',     cls: 'badge-alarm',  card: 'alarm-state', alarm: true  }
+    };
+
+    function escapeHtml(str) {
+      return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function recalcDerived(cfg) {
+      cfg.gttMin = cfg.orderRate > 0 ? (cfg.orderRate * cfg.dropFactor) / 60 : 0;
+      cfg.secPerDrop = cfg.gttMin > 0 ? (60 / cfg.gttMin) : 0;
+    }
+
+    function pushBedConfig(id, showAlert = false) {
+      const cfg = bedConfigs[id - 1];
+      skipHostSyncUntil = Date.now() + 3000;
+      const body = new URLSearchParams({
+        station: id,
+        rate: (cfg.orderRate || 0).toFixed(1),
+        volume: (cfg.volTotal || 0).toFixed(0),
+        df: cfg.dropFactor,
+        nearpct: cfg.nearPct || 80,
+        name: cfg.patientName || ''
+      });
+      return fetch('/api/stations/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      }).then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t || ('HTTP ' + r.status)); });
+        dirtyBeds.delete(id);
+        updateDirtyNote();
+        if (showAlert) alert(`ส่งค่าเตียง ${id} ไปยัง Host เรียบร้อยแล้ว\nRate ${cfg.orderRate.toFixed(1)} mL/hr | แผน ${cfg.volTotal} mL | ${cfg.dropFactor} gtt/mL\nเตือนใกล้หมดที่ ${cfg.nearPct || 80}%`);
+      }).catch(e => alert('ส่งค่าไปยัง Host ไม่สำเร็จ: ' + e.message));
+    }
+
+    function resetBedCounter() {
+      const id = selectedStation;
+      if (!confirm(`เริ่มถุงใหม่สำหรับเตียง ${id}?\n\nระบบจะรีเซ็ตจำนวนหยด ปริมาตรสะสม และประวัติ 60 นาทีของเตียงนี้ ทั้งที่ Host และเครื่องประจำเตียง`)) return;
+      fetch('/api/stations/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `station=${id}`
+      }).then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        alert(`รีเซ็ตเตียง ${id} แล้ว (เครื่องประจำเตียงจะรีเซ็ตภายใน 1-2 วินาที)`);
+        if (document.getElementById('tab-logs').classList.contains('active')) fetchLogs();
+      }).catch(e => alert('รีเซ็ตไม่สำเร็จ: ' + e.message));
+    }
+
+    // Host เป็นแหล่งข้อมูลหลักของ Rate / แผน / Drop factor / ชื่อผู้ป่วย
+    function syncConfigsFromHost(stationsData) {
+      if (Date.now() < skipHostSyncUntil) return;
+      const ae = document.activeElement;
+      const editing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT');
+      let needTabs = false;
+      stationsData.forEach(st => {
+        const cfg = bedConfigs[st.id - 1];
+        if (!cfg) return;
+        if (editing && st.id === selectedStation) return;
+        if (dirtyBeds.has(st.id)) return;
+        let changed = false;
+        if (Math.abs((cfg.orderRate || 0) - st.targetRate) > 0.05) { cfg.orderRate = st.targetRate; changed = true; }
+        if (Math.abs((cfg.volTotal || 0) - st.planVolume) > 0.5) { cfg.volTotal = st.planVolume; changed = true; }
+        if (cfg.dropFactor !== st.dropFactor) { cfg.dropFactor = st.dropFactor; changed = true; }
+        if ((cfg.nearPct || 80) !== st.nearEndPct) { cfg.nearPct = st.nearEndPct; changed = true; }
+        if ((cfg.patientName || '') !== (st.patientName || '')) { cfg.patientName = st.patientName || ''; changed = true; needTabs = true; }
+        if (changed) {
+          recalcDerived(cfg);
+          if (st.id === selectedStation) loadBedToForm(selectedStation);
+        }
+      });
+      if (needTabs) renderTabs();
+      saveBedConfigs();
+    }
+
+    function updateHostCfgNote() {
+      const el = document.getElementById('hostCfgNote');
+      if (!el || !lastHostData) return;
+      const st = lastHostData.stations.find(x => x.id === selectedStation);
+      if (!st) { el.innerText = 'ค่าที่ Host ใช้อยู่: -'; return; }
+      el.innerHTML = `ค่าที่ Host ใช้อยู่ (เตียง ${st.id}): <b>${st.targetRate} mL/hr</b> | แผน <b>${st.planVolume} mL</b> | <b>${st.dropFactor} gtt/mL</b> | เตือนใกล้หมด <b>${st.nearEndPct}%</b>` +
+                     (st.caseStart ? `<br>เริ่มถุงปัจจุบัน: ${escapeHtml(st.caseStart)}` : '');
+    }
+
+    function playAlarmTone() {
+      if (audioMuted) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.5);
+      } catch (e) { console.log(e); }
+    }
+
+    function toggleAudioMute() {
+      audioMuted = !audioMuted;
+      document.getElementById('audioToggleBtn').innerText = audioMuted ? '🔕 ปิดเสียงเตือน' : '🔔 เปิดเสียงเตือน';
+      if (!audioMuted && !audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    function switchMainTab(tabId, btnEl) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      btnEl.classList.add('active');
+
+      if (tabId === 'tab-graphs') renderGraphs();
+      else if (tabId === 'tab-logs') fetchLogs();
+    }
+
+    function changeBedScale(delta) {
+      const newCount = activeBedCount + delta;
+      if (newCount < 1 || newCount > maxSupportedBeds) {
+        alert(`สามารถตั้งจำนวนเตียงได้ระหว่าง 1 ถึง ${maxSupportedBeds} เตียง`);
+        return;
+      }
+      fetch(`/api/stations/set?count=${newCount}`, { method: 'POST' })
+        .then(res => {
+          if (res.ok) {
+            activeBedCount = newCount;
+            document.getElementById('activeBedCountLabel').innerText = activeBedCount;
+            if (selectedStation > activeBedCount) selectedStation = 1;
+            if (activeGraphStation > activeBedCount) activeGraphStation = 1;
+            if (activeLogTab > activeBedCount) activeLogTab = 1;
+            renderTabs();
+            loadBedToForm(selectedStation);
+          }
+        });
+    }
+
+    function renderTabs() {
+      const calcBox = document.getElementById('calcBedSelectorTabs');
+      calcBox.innerHTML = '';
+      for (let i = 0; i < activeBedCount; i++) {
+        const b = bedConfigs[i];
+        const isAct = (b.id === selectedStation) ? 'active' : '';
+        calcBox.innerHTML += `<div class="tab-item ${isAct}" onclick="selectStation(${b.id})">🛏️ เตียง ${b.id}: ${escapeHtml(b.patientName) || 'ว่าง'}</div>`;
+      }
+
+      const graphBox = document.getElementById('graphBedSelectorTabs');
+      graphBox.innerHTML = '';
+      for (let i = 0; i < activeBedCount; i++) {
+        const b = bedConfigs[i];
+        const isAct = (b.id === activeGraphStation) ? 'active' : '';
+        graphBox.innerHTML += `<div class="tab-item ${isAct}" onclick="switchGraphStation(${b.id}, this)">🛏️ เตียง ${b.id}: ${escapeHtml(b.patientName) || 'ว่าง'}</div>`;
+      }
+
+      const logBox = document.getElementById('logBedSelectorTabs');
+      logBox.innerHTML = '';
+      for (let i = 0; i < activeBedCount; i++) {
+        const b = bedConfigs[i];
+        const isAct = (b.id === activeLogTab) ? 'active' : '';
+        logBox.innerHTML += `<div class="tab-item ${isAct}" onclick="switchLogTab(${b.id}, this)">🛏️ เตียง ${b.id}: ${escapeHtml(b.patientName) || 'ว่าง'}</div>`;
+      }
+    }
+
+    function onPatientNameChanged(val) {
+      bedConfigs[selectedStation - 1].patientName = val;
+      saveBedConfigs();
+      renderTabs();
+      updateBedTitles();
+      clearTimeout(nameSyncTimer);
+      const sid = selectedStation;
+      skipHostSyncUntil = Date.now() + 3000;
+      nameSyncTimer = setTimeout(() => pushBedConfig(sid, false), 1000);
+    }
+
+    function updateBedTitles() {
+      const cfg = bedConfigs[selectedStation - 1];
+      const pName = cfg.patientName ? `(${cfg.patientName})` : '';
+      document.getElementById('activeBedBadgeText').innerText = `เตียง ${selectedStation} ${pName}`;
+      document.getElementById('cardBedTag1').innerText = `[เตียง ${selectedStation} ${pName}]`;
+      document.getElementById('cardBedTag2').innerText = `[เตียง ${selectedStation} ${pName}]`;
+      document.getElementById('simTitle').innerText = `💧 จำลองการหยด: เตียง ${selectedStation} ${pName}`;
+    }
+
+    function loadBedToForm(id) {
+      const cfg = bedConfigs[id - 1];
+      document.getElementById('patientNameInput').value = cfg.patientName || '';
+      document.getElementById('volumeInput').value = cfg.volume;
+      document.getElementById('hoursInput').value = cfg.hours;
+      document.getElementById('startTimeInput').value = cfg.startTime;
+      document.getElementById('volTotalInput').value = cfg.volTotal;
+      document.getElementById('orderRateInput').value = cfg.orderRate;
+      document.getElementById('startTime2Input').value = cfg.startTime2;
+      document.getElementById('nearPctInput').value = cfg.nearPct || 80;
+      updateNearPctHint();
+
+      document.querySelectorAll('.pill-btn').forEach(btn => {
+        if (parseInt(btn.innerText) === cfg.dropFactor) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+
+      document.getElementById('gttMinDisplay').innerText = cfg.gttMin.toFixed(2);
+      document.getElementById('secPerDropDisplay').innerText = cfg.secPerDrop.toFixed(2);
+      document.getElementById('durationText').innerText = cfg.durationText;
+      document.getElementById('endTime2Text').innerText = cfg.endTime2Text;
+
+      updateBedTitles();
+      renderTabs();
+      updateHostCfgNote();
+      updateDirtyNote();
+
+      if (document.getElementById('dropElement').classList.contains('animate')) startDrip();
+    }
+
+    function onInputChanged() {
+      const cfg = bedConfigs[selectedStation - 1];
+      cfg.volume = parseFloat(document.getElementById('volumeInput').value) || 0;
+      cfg.hours = parseFloat(document.getElementById('hoursInput').value) || 0;
+      cfg.startTime = document.getElementById('startTimeInput').value;
+      cfg.volTotal = parseFloat(document.getElementById('volTotalInput').value) || 0;
+      cfg.orderRate = parseFloat(document.getElementById('orderRateInput').value) || 0;
+      cfg.startTime2 = document.getElementById('startTime2Input').value;
+      cfg.nearPct = Math.min(95, Math.max(50, parseInt(document.getElementById('nearPctInput').value) || 80));
+      updateNearPctHint();
+      dirtyBeds.add(selectedStation);
+      updateDirtyNote();
+      saveBedConfigs();
+    }
+
+    function setDropFactor(val, btn) {
+      bedConfigs[selectedStation - 1].dropFactor = val;
+      document.querySelectorAll('.pill-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      calculateIVRate(false);
+      dirtyBeds.add(selectedStation);
+      updateDirtyNote();
+    }
+
+    function calculateIVRate(save = false) {
+      onInputChanged();
+      const cfg = bedConfigs[selectedStation - 1];
+      if (cfg.volume <= 0 || cfg.hours <= 0) {
+        if (save) alert('กรุณากรอกปริมาตรและเวลาให้สารน้ำให้ถูกต้อง');
+        return;
+      }
+
+      const totalMins = cfg.hours * 60;
+      cfg.gttMin = (cfg.volume * cfg.dropFactor) / totalMins;
+      cfg.secPerDrop = cfg.gttMin > 0 ? (60 / cfg.gttMin) : 0;
+
+      document.getElementById('gttMinDisplay').innerText = cfg.gttMin.toFixed(2);
+      document.getElementById('secPerDropDisplay').innerText = cfg.secPerDrop.toFixed(2);
+
+      if (save) {
+        cfg.orderRate = Math.round((cfg.volume / cfg.hours) * 10) / 10;
+        cfg.volTotal = cfg.volume;
+        document.getElementById('orderRateInput').value = cfg.orderRate;
+        document.getElementById('volTotalInput').value = cfg.volTotal;
+        if (!document.getElementById('startTime2Input').value) document.getElementById('startTime2Input').value = cfg.startTime;
+        calculateEndTime(false);
+        pushBedConfig(selectedStation, true);
+      }
+      saveBedConfigs();
+
+      if (document.getElementById('dropElement').classList.contains('animate')) startDrip();
+    }
+
+    function calculateEndTime(save = false) {
+      onInputChanged();
+      const cfg = bedConfigs[selectedStation - 1];
+      if (cfg.volTotal <= 0 || cfg.orderRate <= 0) {
+        if (save) alert('กรุณากรอกปริมาณสารน้ำและ Rate ให้ถูกต้อง');
+        return;
+      }
+
+      const durationHours = cfg.volTotal / cfg.orderRate;
+      const totalMinsAll = Math.round(durationHours * 60);
+      const h = Math.floor(totalMinsAll / 60);
+      const m = totalMinsAll % 60;
+      cfg.durationText = `${h} ชั่วโมง ${m} นาที`;
+
+      if (cfg.startTime2) {
+        const [stH, stM] = cfg.startTime2.split(':').map(Number);
+        const endTotalMins = (stH * 60 + stM + totalMinsAll) % 1440;
+        const endH = String(Math.floor(endTotalMins / 60)).padStart(2, '0');
+        const endM = String(endTotalMins % 60).padStart(2, '0');
+        cfg.endTime2Text = `หมดเวลา ${endH}:${endM} น.`;
+      }
+
+      recalcDerived(cfg);
+      document.getElementById('gttMinDisplay').innerText = cfg.gttMin.toFixed(2);
+      document.getElementById('secPerDropDisplay').innerText = cfg.secPerDrop.toFixed(2);
+      document.getElementById('durationText').innerText = cfg.durationText;
+      document.getElementById('endTime2Text').innerText = cfg.endTime2Text;
+      saveBedConfigs();
+
+      if (save) pushBedConfig(selectedStation, true);
+    }
+
+    function startDrip() {
+      const cfg = bedConfigs[selectedStation - 1];
+      const dropEl = document.getElementById('dropElement');
+      dropEl.classList.remove('animate');
+      void dropEl.offsetWidth;
+      dropEl.style.animationDuration = `${cfg.secPerDrop}s`;
+      dropEl.classList.add('animate');
+      document.getElementById('simStatus').innerText = `เตียง ${selectedStation}: หยดทุก ๆ ${cfg.secPerDrop.toFixed(2)} วินาที`;
+    }
+
+    function stopDrip() {
+      document.getElementById('dropElement').classList.remove('animate');
+      document.getElementById('simStatus').innerText = "สถานะ: หยุดจำลอง";
+    }
+
+    function selectStation(id) {
+      selectedStation = id;
+      document.querySelectorAll('.station-card').forEach(c => c.classList.remove('selected'));
+      const activeCard = document.getElementById(`st-card-${id}`);
+      if (activeCard) activeCard.classList.add('selected');
+      loadBedToForm(id);
+    }
+
+    function getSignalMeta(rssi, isOnline) {
+      if (!isOnline) return { lvl: 0, text: 'Offline', color: '#a0aec0' };
+      if (rssi >= -60) return { lvl: 4, text: `${rssi} dBm (ดีเยี่ยม)`, color: '#38a169' };
+      if (rssi >= -70) return { lvl: 3, text: `${rssi} dBm (ดี)`, color: '#3182ce' };
+      if (rssi >= -80) return { lvl: 2, text: `${rssi} dBm (ปานกลาง)`, color: '#dd6b20' };
+      return { lvl: 1, text: `${rssi} dBm (อ่อน)`, color: '#e53e3e' };
+    }
+
+    function renderStations(stationsData) {
+      const container = document.getElementById('stationGridContainer');
+      if (container.querySelector('.ack-btn:hover, .ack-btn:active')) return;   // ไม่วาดทับขณะกำลังกดปุ่มรับทราบ
+      container.innerHTML = '';
+      let hasAlarm = false;
+
+      stationsData.forEach(st => {
+        const isSel = (st.id === selectedStation) ? 'selected' : '';
+        const targetRate = st.targetRate;
+        const targetGtt = targetRate > 0 ? ((targetRate * st.dropFactor) / 60).toFixed(1) : '-';
+        const isPaused = st.online && !st.running;
+        const meta = ALERT_META[st.alertCode] || ALERT_META[0];
+
+        let statusBadge = '';
+        let cardState = '';
+        let isAlarm = false;
+
+        if (!st.online) {
+          statusBadge = '<span class="badge-status badge-offline">○ Offline</span>';
+        } else if (isPaused) {
+          statusBadge = '<span class="badge-status badge-paused">⏸️ หยุดชั่วคราว</span>';
+          cardState = 'paused-state';
+        } else {
+          statusBadge = `<span class="badge-status ${meta.cls}">${meta.text}</span>`;
+          cardState = meta.card;
+          isAlarm = meta.alarm;
+        }
+        if (isAlarm) hasAlarm = true;
+        const nearPending = st.online && st.running && st.alertCode === 3 && !st.nearEndAck;
+        if (nearPending && !nearChimed[st.id]) { nearChimed[st.id] = true; playNearEndChime(); }
+        if (!nearPending) nearChimed[st.id] = false;
+        const nearMl = st.planVolume > 0 ? Math.round(st.planVolume * st.nearEndPct / 100) : 0;
+        const nearHtml = st.planVolume > 0
+          ? `<div class="near-line">🔔 เตือนเตรียมถุงใหม่ที่ ${st.nearEndPct}% (${nearMl} mL)${st.alertCode === 3 && st.nearEndAck ? ' — รับทราบแล้ว' : ''}</div>`
+          : '';
+        const ackHtml = nearPending
+          ? `<button class="ack-btn" onclick="acknowledgeNearEnd(${st.id}, event)">✅ รับทราบ เตรียมถุงใหม่ให้เตียง ${st.id}</button>`
+          : '';
+
+        const sig = getSignalMeta(st.rssi, st.online);
+        const batText = st.battery > 0.5
+          ? `🔋 ${st.battery.toFixed(2)}V (${Math.min(100, Math.max(0, Math.round(((st.battery - 3.2) / (4.2 - 3.2)) * 100)))}%)`
+          : '🔋 N/A';
+        const progress = st.planVolume > 0 ? Math.min(100, (st.volumeMl / st.planVolume) * 100) : 0;
+        const planText = st.planVolume > 0 ? ` / ${st.planVolume} mL (${progress.toFixed(0)}%)` : ' mL (ยังไม่ตั้งแผน)';
+
+        const card = document.createElement('div');
+        card.className = `station-card ${isSel} ${cardState}`;
+        card.id = `st-card-${st.id}`;
+        card.onclick = () => selectStation(st.id);
+
+        card.innerHTML = `
+          <div class="station-header">
+            <div>
+              <div class="station-title">🛏️ เตียง ${st.id}</div>
+              <div class="patient-label">👤 ${escapeHtml(st.patientName) || 'ระบุชื่อคนไข้'}</div>
+            </div>
+            ${statusBadge}
+          </div>
+          <div class="telemetry-row">
+            <span style="color:${sig.color}; font-weight:600;">📶 ${sig.text}</span>
+            <span style="font-weight:600; color:#4a5568;">${batText}</span>
+            <div class="signal-bars lvl-${sig.lvl}">
+              <div class="bar b1"></div>
+              <div class="bar b2"></div>
+              <div class="bar b3"></div>
+              <div class="bar b4"></div>
+            </div>
+          </div>
+          <div class="stat-row">
+            <span>หยดสะสม:</span>
+            <span class="val">${st.totalDrops} drops</span>
+          </div>
+          <div class="stat-row">
+            <span>ปริมาตรให้แล้ว:</span>
+            <span class="val" style="color:#2b6cb0;">${st.volumeMl.toFixed(1)}${planText}</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" style="width:${progress}%"></div></div>
+          ${nearHtml}
+          <div class="stat-row">
+            <span>Actual Rate:</span>
+            <span class="val" style="color:${isAlarm ? '#e53e3e' : (isPaused ? '#d97706' : '#2f855a')};">
+              ${isPaused ? '0.0 (PAUSED)' : st.flowRateHr.toFixed(1) + ' mL/hr'}
+            </span>
+          </div>
+          <div class="compare-box">
+            <span>Target: <b>${targetGtt} gtt/min</b> (${targetRate > 0 ? targetRate + ' mL/hr' : 'ยังไม่ตั้ง'})</span>
+            <span>${st.dropFactor} gtt/mL</span>
+          </div>
+          ${ackHtml}
+        `;
+        container.appendChild(card);
+      });
+
+      if (hasAlarm) playAlarmTone();
+    }
+
+    function switchGraphStation(stationId, tabEl) {
+      activeGraphStation = stationId;
+      renderTabs();
+      renderGraphs();
+    }
+
+    function drawLineChart(canvasId, labels, dataPoints, unit, lineColor, fillColor) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+
+      const w = rect.width, h = rect.height;
+      ctx.clearRect(0, 0, w, h);
+      const padL = 48, padR = 20, padT = 28, padB = 32;
+      const plotW = w - padL - padR, plotH = h - padT - padB;
+
+      if (dataPoints.length === 0) {
+        ctx.fillStyle = '#a0aec0';
+        ctx.font = '14.5px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('ยังไม่มีข้อมูลประวัติย้อนหลังสำหรับเตียงนี้', w / 2, h / 2);
+        return;
+      }
+
+      const maxVal = Math.max(...dataPoints, 10) * 1.15;
+      const minVal = 0;
+
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+      ctx.fillStyle = '#718096';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'right';
+
+      const ySteps = 4;
+      for (let i = 0; i <= ySteps; i++) {
+        const val = minVal + ((maxVal - minVal) / ySteps) * i;
+        const y = padT + plotH - (plotH / ySteps) * i;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+        ctx.fillText(val.toFixed(0), padL - 6, y + 4);
+      }
+
+      const n = dataPoints.length;
+      const stepX = n > 1 ? plotW / (n - 1) : plotW;
+      const points = [];
+
+      for (let i = 0; i < n; i++) {
+        const x = padL + (n === 1 ? plotW / 2 : i * stepX);
+        const y = padT + plotH - ((dataPoints[i] - minVal) / (maxVal - minVal)) * plotH;
+        points.push({ x, y, val: dataPoints[i], label: labels[i] });
+      }
+
+      if (points.length > 1) {
+        const grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
+        grad.addColorStop(0, fillColor);
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, padT + plotH);
+        for (let pt of points) ctx.lineTo(pt.x, pt.y);
+        ctx.lineTo(points[points.length - 1].x, padT + plotH);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = 2.5;
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+      ctx.stroke();
+
+      points.forEach((pt, idx) => {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = lineColor;
+        ctx.stroke();
+
+        if (idx === 0 || idx === points.length - 1 || idx % 10 === 0) {
+          ctx.fillStyle = '#718096';
+          ctx.textAlign = 'center';
+          ctx.font = '11px sans-serif';
+          ctx.fillText(`-${pt.label}m`, pt.x, h - 10);
+        }
+      });
+    }
+
+    function drawBarChart(canvasId, labels, dataPoints, barColor) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+
+      const w = rect.width, h = rect.height;
+      ctx.clearRect(0, 0, w, h);
+      const padL = 48, padR = 20, padT = 28, padB = 32;
+      const plotW = w - padL - padR, plotH = h - padT - padB;
+
+      if (dataPoints.length === 0) {
+        ctx.fillStyle = '#a0aec0';
+        ctx.font = '14.5px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('ยังไม่มีข้อมูลหยดน้ำสำหรับเตียงนี้', w / 2, h / 2);
+        return;
+      }
+
+      const maxVal = Math.max(...dataPoints, 10) * 1.15;
+      const ySteps = 4;
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+      ctx.fillStyle = '#718096';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'right';
+
+      for (let i = 0; i <= ySteps; i++) {
+        const val = (maxVal / ySteps) * i;
+        const y = padT + plotH - (plotH / ySteps) * i;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+        ctx.fillText(val.toFixed(0), padL - 6, y + 4);
+      }
+
+      const n = dataPoints.length;
+      const barWidth = Math.max(2, (plotW / n) * 0.7);
+      const gap = plotW / n;
+      ctx.fillStyle = barColor;
+
+      for (let i = 0; i < n; i++) {
+        const barH = (dataPoints[i] / maxVal) * plotH;
+        const x = padL + i * gap + (gap - barWidth) / 2;
+        const y = padT + plotH - barH;
+        ctx.fillRect(x, y, barWidth, barH);
+
+        if (i === 0 || i === n - 1 || i % 10 === 0) {
+          ctx.fillStyle = '#718096';
+          ctx.textAlign = 'center';
+          ctx.font = '11px sans-serif';
+          ctx.fillText(`-${labels[i]}m`, x + barWidth / 2, h - 10);
+          ctx.fillStyle = barColor;
+        }
+      }
+    }
+
+    function renderGraphs() {
+      fetch(`/api/logs?station=${activeGraphStation}`)
+        .then(res => res.json())
+        .then(data => {
+          if (!data.logs || data.logs.length === 0) {
+            drawLineChart('flowRateCanvas', [], [], 'mL/hr', '#0072ff', 'rgba(0,114,255,0.2)');
+            drawBarChart('dropsCanvas', [], [], '#38a169');
+            document.getElementById('graphPeakRate').innerText = "0.0";
+            document.getElementById('graphMinRate').innerText = "0.0";
+            document.getElementById('graphAvgRate').innerText = "0.0";
+            document.getElementById('graphTotalVol').innerText = "0.00";
+            return;
+          }
+
+          const labels = [];
+          const rateData = [];
+          const dropsData = [];
+          let sumRate = 0, sumDrops = 0;
+          let peak = 0, min = 999999;
+
+          for (let i = 0; i < data.logs.length; i++) {
+            const item = data.logs[i];
+            const minsAgo = data.logs.length - 1 - i;
+            labels.push(minsAgo);
+            rateData.push(item.rate);
+            dropsData.push(item.drops);
+            sumRate += item.rate;
+            sumDrops += item.drops;
+            if (item.rate > peak) peak = item.rate;
+            if (item.rate < min) min = item.rate;
+          }
+
+          if (min === 999999) min = 0;
+
+          document.getElementById('graphPeakRate').innerText = peak.toFixed(1);
+          document.getElementById('graphMinRate').innerText = min.toFixed(1);
+          document.getElementById('graphAvgRate').innerText = (sumRate / data.logs.length).toFixed(1);
+          document.getElementById('graphTotalVol').innerText = (sumDrops / (data.dropFactor || 20)).toFixed(2);
+
+          drawLineChart('flowRateCanvas', labels, rateData, 'mL/hr', '#0072ff', 'rgba(0,114,255,0.2)');
+          drawBarChart('dropsCanvas', labels, dropsData, '#38a169');
+        })
+        .catch(err => console.log(err));
+    }
+
+    function switchLogTab(stationId, tabEl) {
+      activeLogTab = stationId;
+      renderTabs();
+      fetchLogs();
+    }
+
+    function fetchLogs() {
+      fetch(`/api/logs?station=${activeLogTab}`)
+        .then(res => res.json())
+        .then(data => {
+          const tbody = document.getElementById('logTableBody');
+          tbody.innerHTML = '';
+
+          if (!data.logs || data.logs.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 22px; font-size:14.5px;">ยังไม่มีข้อมูลบันทึกสำหรับ เตียง ${activeLogTab}</td></tr>`;
+            document.getElementById('logSumDrops').innerText = "0";
+            document.getElementById('logSumVolume').innerText = "0.00";
+            document.getElementById('logAvgRate').innerText = "0.00";
+            return;
+          }
+
+          let sumDrops = 0;
+          let sumRate = 0;
+
+          for (let i = data.logs.length - 1; i >= 0; i--) {
+            const item = data.logs[i];
+            sumDrops += item.drops;
+            sumRate += item.rate;
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+              <td><b>${item.min}</b></td>
+              <td><span style="color:#2b6cb0; font-weight:600;">${item.time}</span></td>
+              <td><b>${item.drops}</b> drops</td>
+              <td>${item.vol} mL</td>
+              <td><span style="color:#2f855a; font-weight:700;">${item.rate}</span> mL/hr</td>
+              <td>${item.target} mL/hr</td>
+              <td>${(ALERT_META[item.alert] || ALERT_META[0]).text}</td>
+              <td>${item.rssi} dBm</td>
+              <td>${item.battery > 0.5 ? item.battery + ' V' : 'N/A'}</td>
+            `;
+            tbody.appendChild(row);
+          }
+
+          document.getElementById('logSumDrops').innerText = sumDrops;
+          document.getElementById('logSumVolume').innerText = (sumDrops / (data.dropFactor || 20)).toFixed(2);
+          document.getElementById('logAvgRate').innerText = (sumRate / data.logs.length).toFixed(2);
+        })
+        .catch(err => console.log(err));
+    }
+
+    function downloadShiftCSV() {
+      window.location.href = `/api/logs/csv?station=${activeLogTab}`;
+    }
+
+    function openApModal() { document.getElementById('apModal').style.display = 'flex'; fetchApStatus(); }
+    function closeApModal() { document.getElementById('apModal').style.display = 'none'; }
+    function fetchApStatus() {
+      fetch('/api/ap/status').then(r=>r.json()).then(d=>{
+        document.getElementById('apDetailBox').innerHTML =
+          `<b>ชื่อ Wi-Fi (SSID):</b> ${d.ssid}<br>` +
+          `<b>รหัสผ่าน:</b> ${d.password}<br>` +
+          `<b>ที่อยู่หน้าเว็บ:</b> http://${d.apIP}<br>` +
+          `<b>ช่องสัญญาณ:</b> ${d.channel}<br>` +
+          `<b>อุปกรณ์ที่ต่ออยู่:</b> ${d.clients} / ${d.maxClients} เครื่อง<br>` +
+          `<b>เวลาเครื่อง:</b> ${d.currentTime}`;
+      }).catch(e=>{ document.getElementById('apDetailBox').innerText = 'อ่านข้อมูลไม่สำเร็จ'; });
+    }
+
+    // ตั้งเวลาให้ Host จากนาฬิกาของเครื่องที่เปิดหน้านี้ (ใช้แทน NTP เพราะไม่มีอินเทอร์เน็ต)
+    function syncHostTime() {
+      const epoch = Math.floor(Date.now() / 1000);
+      fetch(`/api/time/set?epoch=${epoch}`, {method:'POST'}).catch(e=>console.log(e));
+    }
+
+    setInterval(() => {
+      if (document.hidden) return;   // ไม่ดึงข้อมูลเมื่อสลับแท็บ/ปิดจอ ลดภาระเมื่อมีผู้ใช้หลายเครื่อง
+      fetch('/api/data')
+        .then(res => res.json())
+        .then(data => {
+          activeBedCount = data.activeCount;
+          document.getElementById('activeBedCountLabel').innerText = activeBedCount;
+
+          const hVolts = data.hostBatVolts;
+          const hPct = data.hostBatPct;
+          const hostEl = document.getElementById('hostBatDisplay');
+          if (hVolts > 0.5) {
+            hostEl.innerText = `🔋 Host: ${hVolts.toFixed(2)}V (${hPct}%)`;
+            if (hPct <= 20) {
+              hostEl.style.background = '#e53e3e';
+              hostEl.style.color = '#ffffff';
+            } else {
+              hostEl.style.background = 'rgba(0,0,0,0.2)';
+              hostEl.style.color = '#ffffff';
+            }
+          } else {
+            hostEl.innerText = '⚡ Host: USB Power';
+            hostEl.style.background = 'rgba(0,0,0,0.2)';
+          }
+
+          let timeNote = '';
+          if (!data.timeSynced) timeNote = data.timeApprox ? ' (เวลาโดยประมาณ)' : ' (ยังไม่ตั้งเวลา)';
+          document.getElementById('hostClockDisplay').innerText = data.currentTime + timeNote;
+          document.getElementById('netStatusSubtitle').innerText =
+            `AP: 192.168.4.1 · CH ${data.channel} · อุปกรณ์ ${data.apClients}/${data.apMaxClients} เครื่อง`;
+          lastHostData = data;
+          syncConfigsFromHost(data.stations);
+          renderStations(data.stations);
+          updateHostCfgNote();
+        })
+        .catch(err => console.log(err));
+    }, 1000);
+
+    setInterval(() => {
+      if (document.getElementById('tab-graphs').classList.contains('active')) renderGraphs();
+      if (document.getElementById('tab-logs').classList.contains('active')) fetchLogs();
+    }, 15000);
+
+    renderTabs();
+    loadBedToForm(1);
+    syncHostTime();
+    setInterval(syncHostTime, 600000);   // ปรับเวลาให้ตรงทุก 10 นาที ระหว่างที่ยังเปิดหน้านี้
+  </script>
+</body>
+</html>
+)rawliteral";
+
+void handleRoot() {
+  if (!server.authenticate(web_username, web_password)) {
+    return server.requestAuthentication();
+  }
+  server.send_P(200, "text/html", PAGE_INDEX);
+}
+
+// ==========================================
+//  Setup & Initialization
+// ==========================================
+void setup() {
+  Serial.begin(115200);
+
+  rtc_gpio_deinit((gpio_num_t)POWER_BTN_PIN);   // คืนขาจากโหมด RTC หลังตื่นจาก deep sleep
+  pinMode(POWER_BTN_PIN, INPUT_PULLUP);
+  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0 || wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
+    unsigned long pressStart = millis();
+    bool validHoldToTurnOn = false;
+
+    while (digitalRead(POWER_BTN_PIN) == LOW) {
+      if (millis() - pressStart >= 1500) {
+        validHoldToTurnOn = true;
+        break;
+      }
+      delay(10);
+    }
+
+    if (!validHoldToTurnOn) {
+      while (digitalRead(POWER_BTN_PIN) == LOW) delay(10);
+      delay(100);
+      enterDeepSleepWaitPowerButton();
+    }
+
+    while (digitalRead(POWER_BTN_PIN) == LOW) delay(10);
+    delay(150);
+  }
+
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+  pinMode(HOST_BAT_ADC_PIN, INPUT);
+
+  pinMode(PAGE_BTN_PIN, INPUT_PULLUP);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
+#if TFT_BLK >= 0
+  pinMode(TFT_BLK, OUTPUT);
+  digitalWrite(TFT_BLK, HIGH);
+#endif
+  SPI_TFT.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
+  tft.init(240, 320);              // ความละเอียดจริงของแผง ST7789V
+  tft.setSPISpeed(40000000);
+  tft.setRotation(TFT_ROTATION);   // หมุนเป็นแนวนอน 320x240
+  tft.setTextWrap(false);
+  tft.fillScreen(0x0000);
+
+  hostBatteryVolts = readHostBattery();
+  hostBatteryPct = calculateBatteryPct(hostBatteryVolts);
+
+  preferences.begin("sys-config", true);
+  activeStationCount = preferences.getUChar("bedCount", 5);
+  uint32_t savedEpoch = preferences.getUInt("lastEpoch", 0);
+  preferences.end();
+
+  // เขตเวลาไทยถาวร แล้วกู้เวลาที่สำรองไว้ก่อนไฟดับ (จะถูกแทนที่ทันทีเมื่อเปิดหน้าเว็บ)
+  setenv("TZ", TZ_THAILAND, 1);
+  tzset();
+  if (savedEpoch > 1600000000UL) {
+    struct timeval tv = { (time_t)savedEpoch, 0 };
+    settimeofday(&tv, NULL);
+    isTimeApprox = true;
+  }
+  if (activeStationCount < 1 || activeStationCount > MAX_SUPPORTED_STATIONS) activeStationCount = 5;
+
+  loadBedConfigs();
+
+  // ---------------- Wi-Fi: Access Point อย่างเดียว (ไม่ต่อ Router / ไม่ใช้อินเทอร์เน็ต) ----------------
+  // โหมด AP ล้วนทำให้ช่องสัญญาณนิ่ง ESP-NOW ไม่หลุด และรองรับผู้ใช้พร้อมกันได้หลายเครื่อง
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(default_ap_ssid, default_ap_pass, ESPNOW_CHANNEL, 0, AP_MAX_CLIENTS);
+  WiFi.setSleep(false);
+  esp_wifi_set_ps(WIFI_PS_NONE);   // ไม่ประหยัดพลังงาน = ตอบสนองหลายเครื่องพร้อมกันได้นิ่ง
+
+  // ล้างรหัส Wi-Fi ของ Router ที่เคยบันทึกไว้ในเฟิร์มแวร์รุ่นก่อน (ไม่ใช้แล้ว) ครั้งเดียว
+  preferences.begin("wifi-config", false);
+  if (preferences.isKey("ssid")) preferences.clear();
+  preferences.end();
+
+  Serial.printf("[HOST] SoftAP ready, channel = %d, max clients = %d\n", currentWifiChannel(), AP_MAX_CLIENTS);
+
+  MDNS.begin("iv-monitor");
+
+  // ---------------- ESP-NOW ----------------
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("[HOST] ESP-NOW init FAILED");
+  } else {
+    esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+    peerInfo.channel = 0;            // 0 = ใช้ช่องปัจจุบันของอินเทอร์เฟซ
+    peerInfo.ifidx   = WIFI_IF_AP;    // ไม่มี STA แล้ว จึงส่งผ่านอินเทอร์เฟซ AP
+    peerInfo.encrypt = false;
+    esp_now_add_peer(&peerInfo);
+  }
+
+  server.on("/", handleRoot);
+  server.on("/api/data", handleApiData);
+  server.on("/api/stations/set", HTTP_POST, handleSetStationCount);
+  server.on("/api/stations/config", HTTP_POST, handleStationConfig);
+  server.on("/api/stations/reset", HTTP_POST, handleStationReset);
+  server.on("/api/stations/ack", HTTP_POST, handleStationAck);
+  server.on("/api/logs", handleApiLogs);
+  server.on("/api/logs/csv", handleDownloadCSV);
+  server.on("/api/ap/status", handleApStatus);
+  server.on("/api/time/set", HTTP_POST, handleTimeSet);
+  server.begin();
+
+  drawSplashScreen();
+  lastUserActivityTime = millis();
+  playWelcomeMelody();
+  delay(1400);
+  uiMode = -1;
+
+  unsigned long nowMs = millis();
+  lastCalcTime = nowMs;
+  lastMinuteLogTime = nowMs;
+  lastSyncBroadcastTime = nowMs;
+  updateHostDisplay();
+}
+
+// ==========================================
+//  Main Execution Loop
+// ==========================================
+void loop() {
+  server.handleClient();
+
+  checkSmartphonePowerButton();
+  checkPageButton();
+  handleBuzzerAlarm();
+
+  unsigned long currentMillis = millis();
+
+  // สำรองเวลาลง NVS เป็นระยะ เพื่อให้เวลายังใกล้เคียงเดิมหลังไฟดับ
+  if (currentMillis - lastTimeBackup >= TIME_BACKUP_INTERVAL_MS) {
+    lastTimeBackup = currentMillis;
+    backupClockToNvs();
+  }
+
+  // ---- ประเมินเตือน + ส่ง Sync ทุก 1 วินาที ----
+  if (currentMillis - lastSyncBroadcastTime >= SYNC_INTERVAL_MS) {
+    lastSyncBroadcastTime = currentMillis;
+    evaluateClinicalAlerts();
+    broadcastSyncToNodes();
+  }
+
+  // ---- อัปเดตค่าที่คำนวณได้ทุก 2 วินาที ----
+  if (currentMillis - lastCalcTime >= 2000) {
+    hostBatteryVolts = readHostBattery();
+    hostBatteryPct = calculateBatteryPct(hostBatteryVolts);
+
+    portENTER_CRITICAL(&dataMux);
+    for (int i = 0; i < MAX_SUPPORTED_STATIONS; i++) {
+      stations[i].totalVolumeMl = (float)stations[i].totalDrops / (float)safeDropFactor(stations[i].cfg.dropFactor);
+      if (!stations[i].isRunning || !isStationOnline(i)) {
+        stations[i].flowRate_ml_hr = 0.0;
+      }
+    }
+    portEXIT_CRITICAL(&dataMux);
+    lastCalcTime = currentMillis;
+  }
+
+  // เลือกเตียงเองแล้วปล่อยไว้ครบเวลา -> กลับไปโหมดเลือกอัตโนมัติ
+  if (manualFocusBed >= 0 && currentMillis > manualFocusUntil) {
+    manualFocusBed = -1;
+    uiMode = -1;
+  }
+
+  unsigned long oledRefreshInterval = displaySleeping ? 1000 : 500;
+  if (currentMillis - lastOledUpdateTime >= oledRefreshInterval) {
+    updateHostDisplay();
+    lastOledUpdateTime = currentMillis;
+  }
+
+  // ---- บันทึก Log รายนาที ----
+  if (currentMillis - lastMinuteLogTime >= 60000) {
+    globalMinuteCounter++;
+    String currentTimestamp = getFormattedDateTime();
+
+    for (int i = 0; i < activeStationCount; i++) {
+      StationData &s = stations[i];
+
+      portENTER_CRITICAL(&dataMux);
+      uint32_t minuteDrops = s.dropsInCurrentMinute;
+      s.dropsInCurrentMinute = 0;
+      portEXIT_CRITICAL(&dataMux);
+
+      uint8_t df = safeDropFactor(s.cfg.dropFactor);
+      LogEntry entry;
+      entry.minuteIndex = globalMinuteCounter;
+      snprintf(entry.timeStr, sizeof(entry.timeStr), "%s", currentTimestamp.c_str());
+      entry.drops = (minuteDrops > 65535) ? 65535 : (uint16_t)minuteDrops;
+      entry.volume = s.totalVolumeMl;
+      entry.rateHr = ((float)minuteDrops / (float)df) * 60.0f;   // mL/h จากหยดจริงใน 1 นาที
+      entry.targetRate = s.cfg.targetRateHr;
+      entry.alertCode = s.alertCode;
+      entry.rssi = isStationOnline(i) ? s.rssi : 0;
+      entry.battery = s.batteryVolts;
+
+      if (s.logCount < MAX_LOGS) {
+        s.logs[s.logCount++] = entry;
+      } else {
+        memmove(&s.logs[0], &s.logs[1], sizeof(LogEntry) * (MAX_LOGS - 1));
+        s.logs[MAX_LOGS - 1] = entry;
+      }
+    }
+    lastMinuteLogTime += 60000;
+  }
+}

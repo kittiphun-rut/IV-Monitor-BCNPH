@@ -6,14 +6,14 @@
 #include <cmath>
 #include <string>
 #include <algorithm>
-#define PI 3.1415926535897932384626433832795
+#define PI 3.14159265358979
 #define HIGH 1
 #define LOW 0
 #define INPUT 0
 #define OUTPUT 1
 #define INPUT_PULLUP 2
-#include <ctime>
-#include <sys/time.h>
+#define PROGMEM
+typedef unsigned char byte;
 typedef int esp_err_t;
 typedef int portMUX_TYPE;
 #define portMUX_INITIALIZER_UNLOCKED 0
@@ -21,25 +21,35 @@ typedef int portMUX_TYPE;
 #define portEXIT_CRITICAL(x) ((void)0)
 #define ESP_IDF_VERSION_VAL(a,b,c) ((a)*10000+(b)*100+(c))
 #define ESP_IDF_VERSION ESP_IDF_VERSION_VAL(5,1,0)
-void neopixelWrite(int,int,int,int);
+#include <ctime>
+bool getLocalTime(struct tm*, unsigned long ms=5000);
 enum adc_attenuation_t { ADC_0db, ADC_2_5db, ADC_6db, ADC_11db };
 class String {
 public:
   std::string s;
   String() {}
-  String(const char* c) : s(c) {}
+  String(const char* c) : s(c?c:"") {}
   String(const std::string& v) : s(v) {}
-  String(int v) { char b[24]; snprintf(b,sizeof(b),"%d",v); s=b; }
-  String(unsigned int v) { char b[24]; snprintf(b,sizeof(b),"%u",v); s=b; }
-  String(long v) { char b[24]; snprintf(b,sizeof(b),"%ld",v); s=b; }
-  String(unsigned long v) { char b[24]; snprintf(b,sizeof(b),"%lu",v); s=b; }
-  String(float v, int d=-1) { char b[48]; if(d<0) snprintf(b,sizeof(b),"%g",v); else snprintf(b,sizeof(b),"%.*f",d,v); s=b; }
+  String(char c) { s = std::string(1,c); }
+  String(int v) { char b[32]; snprintf(b,sizeof(b),"%d",v); s=b; }
+  String(unsigned int v) { char b[32]; snprintf(b,sizeof(b),"%u",v); s=b; }
+  String(long v) { char b[32]; snprintf(b,sizeof(b),"%ld",v); s=b; }
+  String(unsigned long v) { char b[32]; snprintf(b,sizeof(b),"%lu",v); s=b; }
+  String(float v, int d=2) { char b[48]; snprintf(b,sizeof(b),"%.*f",d,v); s=b; }
+  String(double v, int d=2) { char b[48]; snprintf(b,sizeof(b),"%.*f",d,v); s=b; }
   unsigned int length() const { return s.size(); }
   void reserve(unsigned int n) { s.reserve(n); }
   const char* c_str() const { return s.c_str(); }
+  int toInt() const { return atoi(s.c_str()); }
+  String substring(unsigned int from, unsigned int to) const { return String(s.substr(from, to - from)); }
+  String substring(unsigned int from) const { return String(s.substr(from)); }
+  float toFloat() const { return (float)atof(s.c_str()); }
+  void replace(const String& a, const String& b) {
+    size_t p=0; while((p=s.find(a.s,p))!=std::string::npos){ s.replace(p,a.s.size(),b.s); p+=b.s.size(); }
+  }
   String& operator+=(const String& o) { s += o.s; return *this; }
-  String& operator+=(char c) { s += c; return *this; }
   String& operator+=(const char* c) { s += c; return *this; }
+  String& operator+=(char c) { s += c; return *this; }
   bool operator==(const String& o) const { return s == o.s; }
   bool operator!=(const String& o) const { return s != o.s; }
 };
@@ -56,20 +66,23 @@ int digitalRead(int);
 int analogRead(int);
 void analogReadResolution(int);
 void analogSetAttenuation(adc_attenuation_t);
-void tone(int,unsigned int);
-void noTone(int);
+void tone(int,unsigned int,unsigned long d=0);
 void randomSeed(unsigned long);
 long random(long);
 long random(long,long);
 void rgbLedWrite(int,int,int,int);
-long map(long x, long a, long b, long c, long d);
+void neopixelWrite(int,int,int,int);
+
+void noTone(int);
+long map(long,long,long,long,long);
 using std::min; using std::max;
-class SerialClass { public: void begin(unsigned long) {} void println(const char*) {} void print(const char*) {} void printf(const char*,...) {} };
+class SerialClass {
+public:
+  void begin(unsigned long) {}
+  void print(const char*) {} void print(const String&) {}
+  void println(const char*) {} void println(const String&) {} void println() {}
+  void printf(const char*,...) {}
+};
 extern SerialClass Serial;
-// --- ตัวควบคุมการจำลองฝั่ง host ---
-extern unsigned long g_millis;
-extern bool g_fakeButton;
-extern int  g_pressCount;
-extern bool g_wizardCapture;
-extern bool g_wizardStepMarked;
-void emitMark(const char* name);
+class ESPClass { public: void restart() {} unsigned int getFreeHeap(){return 0;} };
+extern ESPClass ESP;
