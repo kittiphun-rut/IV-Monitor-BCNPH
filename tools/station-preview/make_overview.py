@@ -34,6 +34,13 @@ SHEETS = {
 
 GAP, LABEL_H, BG, FG = 18, 26, (14, 14, 18), (200, 205, 215)
 
+# แผ่นเปรียบเทียบทิศจอ: หมุนภาพ 180 องศา = สิ่งที่ตาเห็นจริงเมื่อตั้ง SCREEN = FLIP 180
+FLIP_DEMO = [
+    ("config_id.png", "SCREEN = NORMAL   setRotation(0)"),
+    ("p1_bag.png",    "SCREEN = NORMAL   setRotation(0)"),
+]
+FLIP_LABEL = "SCREEN = FLIP 180   setRotation(2)  - turn the box over and it reads upright"
+
 for name, items in SHEETS.items():
     tiles = [(Image.open(f"{DOCS}/{f}"), text) for f, text in items]
     w, h = tiles[0][0].size
@@ -46,3 +53,22 @@ for name, items in SHEETS.items():
     out = f"{DOCS}/{name}.png"
     sheet.save(out)
     print(out, sheet.size)
+
+
+# --- flip180_demo.png ---
+tiles = []
+for f, text in FLIP_DEMO:
+    img = Image.open(f"{DOCS}/{f}")
+    tiles.append((img, text))
+    tiles.append((img.rotate(180), FLIP_LABEL))
+
+w, h = tiles[0][0].size
+sheet = Image.new("RGB", (GAP + len(tiles) * (w + GAP), LABEL_H + h + GAP * 2), BG)
+draw = ImageDraw.Draw(sheet)
+for i, (img, text) in enumerate(tiles):
+    x = GAP + i * (w + GAP)
+    draw.text((x, 8), text, fill=FG)
+    sheet.paste(img, (x, LABEL_H + GAP // 2))
+out = f"{DOCS}/flip180_demo.png"
+sheet.save(out)
+print(out, sheet.size)

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# เรนเดอร์ภาพหน้าจอของเฟิร์มแวร์ Station v7.7.0 ทุกหน้า (ใช้ Arduino API จำลองบน PC)
+# เรนเดอร์ภาพหน้าจอของเฟิร์มแวร์ Station ทุกหน้า (ใช้ Arduino API จำลองบน PC)
+# ใช้: run.sh [โฟลเดอร์ผลลัพธ์] [ไฟล์ .ino]
 set -euo pipefail
 cd "$(dirname "$0")"
 OUT="${1:-../../docs/screens-station}"
-SKETCH="../../firmware/ESP32-S3-Station-V_7_7_0/ESP32-S3-Station-V_7_7_0.ino"
+SKETCH="${2:-../../firmware/ESP32-S3-Station-V_7_7_1/ESP32-S3-Station-V_7_7_1.ino}"
 
 # ตรวจลำดับการประกาศชนิดข้อมูล (Arduino แทรก prototype ไว้ก่อนฟังก์ชันแรกของไฟล์)
 python3 ../check-ino-types.py "$SKETCH"
