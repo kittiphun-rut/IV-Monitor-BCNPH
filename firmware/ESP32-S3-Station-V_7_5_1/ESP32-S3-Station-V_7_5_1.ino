@@ -120,7 +120,12 @@
 #define SENSOR_SAMPLE_US        500    // อ่าน ADC ทุก 0.5 ms (2 kHz) พัลส์ 10 ms จึงได้ ~20 จุด
 #define SENSOR_MEDIAN_N         5      // มีเดียน 5 จุด ตัดสไปก์เดี่ยวของ ADC/ตอนส่ง ESP-NOW
 #define SENSOR_GAP_RESYNC_MS    25     // อ่านขาดช่วงนานกว่านี้ = ตั้งต้นใหม่ ไม่เดาพัลส์ที่เห็นไม่ครบ
-#define BASELINE_STEP_DIV       1024   // ยิ่งมากเส้นฐานยิ่งไล่ตามช้า (~0.5 วินาทีที่ 2 kHz)
+// ค่าคงที่เวลาของตัวไล่ตาม คิดจากเวลาจริง (หน่วย 100 ไมโครวินาที) ไม่ใช่จำนวนตัวอย่าง
+// เพื่อให้พฤติกรรมคงที่ไม่ว่าลูปหลักจะยุ่งแค่ไหน
+#define BASELINE_TAU            5000   // 500 ms — เส้นฐานไล่ตามการดริฟต์ช้า ๆ
+#define BASELINE_TAU_FAST       1250   // 125 ms — ตอนถุงแกว่งหรือค่าค้างเหนือเกณฑ์ปลด
+#define DELTA_SLOW_TAU          300    // 30 ms  — ตัวตัดองค์ประกอบช้าในสภาวะปกติ
+#define DELTA_SLOW_TAU_MOTION   100    // 10 ms  — ตอนถุงแกว่ง ตัดให้แรงขึ้น
 #define NOISE_WINDOW_MS         1000   // คาบวัดสัญญาณรบกวนยอดถึงยอด
 #define DROP_MIN_WIDTH_MS       2      // พัลส์แคบกว่านี้ = สัญญาณรบกวน ไม่ใช่หยด
 #define DROP_MAX_WIDTH_MS       250    // กว้างกว่านี้ = ระดับน้ำเปลี่ยน/มีอะไรบัง ไม่ใช่หยด
@@ -132,9 +137,19 @@
 #define CAL_NOISE_MS            3000
 #define CAL_POLARITY_MS         6000
 #define CAL_LEARN_TIMEOUT_MS    60000
-#define CAL_TARGET_DROPS        10
-#define CAL_MIN_DROPS           5
-#define CAL_MAX_SAMPLES         12
+#define CAL_TARGET_DROPS        6      // เก็บให้ครบเท่านี้แล้วจบ (เดิม 10 ทำให้ขั้นที่ 2 นาน)
+#define CAL_MIN_DROPS           3      // ขั้นต่ำที่ยอมรับได้
+#define CAL_MAX_SAMPLES         8
+#define CAL_QUICK_DROPS         3      // ได้เท่านี้และความสูงใกล้เคียงกัน = จบทันที
+#define CAL_QUICK_SPREAD_PCT    40
+
+// ---- การเรียนรู้รูปร่างพัลส์ต่อเนื่องหลังคาลิเบรต ----
+#define LEARN_DIV               8      // ความเร็วที่ค่าที่เรียนรู้ไล่ตามหยดใหม่ (มาก = ช้า)
+#define LEARN_MIN_AMP_PCT       35     // พัลส์ที่เตี้ยกว่านี้ (% ของที่เรียนรู้) = ไม่ใช่หยด
+#define LEARN_MAX_WIDTH_MUL     3      // พัลส์ที่กว้างกว่าที่เรียนรู้เกินเท่านี้ = ไม่ใช่หยด
+#define LEARN_MAX_RISE_MUL      2      // ขอบขาขึ้นช้ากว่าที่เรียนรู้เกินเท่านี้ = ถุงแกว่ง ไม่ใช่หยด
+#define MOTION_WINDOW_MS        200    // คาบตรวจว่าเส้นฐานกำลังเคลื่อน (ถุงแกว่ง/คนไข้เดิน)
+#define MOTION_HOLD_MS          2000   // ถือว่ายังเคลื่อนอยู่อีกเท่านี้หลังตรวจพบ
 #define CAL_VERIFY_MS           20000
 #define SCOPE_TOP               82
 
@@ -232,6 +247,10 @@ uint8_t calSnrX10        = 0;                        // อัตราส่ว
 uint8_t calQuality       = 0;                        // 0 = ยังไม่คาลิเบรต/อ่อนเกินไป ... 4 = ดีมาก
 int     lastDropPeak     = 0;
 int     lastDropWidthMs  = 0;
+int     lastDropRiseMs   = 0;
+int     learnAmp         = 0;    // ความสูงพัลส์ที่เครื่องเรียนรู้ไว้ (0 = ยังไม่รู้จักหยด)
+int     learnWidth       = 0;    // ความกว้างพัลส์ที่เรียนรู้ไว้ (ms)
+bool    shapeGateEnabled = true; // ปิดชั่วคราวระหว่างขั้นเรียนรู้ในหน้าคาลิเบรต
 
 // ----------------------------------------------------------------------------
 // โครงสร้างข้อมูลรับ-ส่ง ESP-NOW (Protocol v2) — ต้องเหมือนกับ Host ทุกไบต์
@@ -593,6 +612,9 @@ long baselineAcc        = 0;      // เส้นฐาน เก็บคูณ
 int  sensorBaseline     = 0;      // เส้นฐาน = ค่าปกติตอนไม่มีหยด
 int  sensorDelta        = 0;      // ระยะเบนจากเส้นฐานในทิศที่แปลว่า "มีหยด"
 int  sensorNoisePp      = 0;      // สัญญาณรบกวนยอดถึงยอดของช่วงที่ไม่มีหยด
+long deltaSlowAcc       = 0;      // ตัวตามค่าเบนแบบช้า (คูณ 256)
+int  deltaSlow          = 0;
+int  deltaEdge          = 0;      // ส่วนที่ไต่ขึ้นเร็วของสัญญาณ = สิ่งที่ตัวตรวจจับใช้จริง
 bool sensorReady        = false;
 
 int medBuf[SENSOR_MEDIAN_N];
@@ -605,7 +627,17 @@ unsigned long noiseWindowStart = 0;
 DropPhase dropPhase       = DP_IDLE;
 unsigned long dropPhaseMs = 0;    // เวลาที่เข้าเฟสปัจจุบัน
 unsigned long dropSettleMs = 0;   // ครั้งล่าสุดที่สัญญาณนิ่งใต้เกณฑ์ปลด
+unsigned long dropRiseMs  = 0;    // เวลาที่ใช้ไต่จากเกณฑ์เข้าถึงยอดพัลส์
 uint32_t baselineRecovers = 0;    // จำนวนครั้งที่ต้องยึดเส้นฐานใหม่เพราะระดับเลื่อนค้าง
+uint32_t completedPulses  = 0;    // จำนวนพัลส์ที่ผ่านเกณฑ์ทั้งหมด (ให้หน้าคาลิเบรตอ่าน)
+uint32_t sampleGaps       = 0;    // จำนวนครั้งที่การอ่านขาดช่วงนานผิดปกติ
+
+// ---- ตรวจว่าเส้นฐานกำลังเคลื่อน (ถุงน้ำเกลือแกว่งตอนคนไข้เดิน) ----
+int  baselineRef          = 0;
+unsigned long motionCheckMs = 0;
+unsigned long motionUntil = 0;
+int  motionLevel          = 0;
+bool inMotion             = false;
 int  dropPeakDelta        = 0;
 uint32_t lastSampleUs     = 0;
 uint32_t rejectedPulses   = 0;    // พัลส์ที่คัดทิ้ง (แคบหรือกว้างผิดปกติ)
@@ -625,6 +657,9 @@ void resetSignalChain(int seed) {
   baselineAcc = (long)seed * 256;
   sensorBaseline = seed;
   sensorDelta = 0;
+  deltaSlowAcc = 0;
+  deltaSlow = 0;
+  deltaEdge = 0;
   dropPhase = DP_REARM;
   dropPhaseMs = millis();
   dropSettleMs = dropPhaseMs;
@@ -652,6 +687,45 @@ int pushMedian(int v) {
 // dropPolarity -1 = หยดทำให้ค่าลดลง (ค่าเริ่มต้น), +1 = หยดทำให้ค่าเพิ่มขึ้น
 inline int deltaFromBaseline(int filtered) {
   return (dropPolarity < 0) ? (sensorBaseline - filtered) : (filtered - sensorBaseline);
+}
+
+// ปรับเกณฑ์ตามความสูงพัลส์ที่เรียนรู้ไว้ แต่ห้ามต่ำกว่าพื้นสัญญาณรบกวน
+void adaptTriggerFromLearning() {
+  if (learnAmp <= 0) return;
+  int t = (learnAmp * 45) / 100;
+  int floorN = calNoisePp * 3;
+  if (floorN < CAL_MIN_TRIGGER) floorN = CAL_MIN_TRIGGER;
+  if (t < floorN) t = floorN;
+  dropTriggerDelta = t;
+  dropReleaseDelta = t * 2 / 5;
+  if (dropReleaseDelta < 2) dropReleaseDelta = 2;
+}
+
+// เรียนรู้จากหยดที่เพิ่งผ่านเกณฑ์ ทำต่อเนื่องตลอดการใช้งาน ไม่ใช่เฉพาะตอนคาลิเบรต
+// จึงตามการเปลี่ยนแปลงช้า ๆ ได้เอง (ฝุ่นเกาะ ไฟอ่อนลง ท่าทางของสายเปลี่ยน)
+void learnFromPulse(int peak, int width) {
+  if (learnAmp <= 0) { learnAmp = peak; learnWidth = width; }
+  else {
+    learnAmp   += (peak  - learnAmp)  / LEARN_DIV;
+    learnWidth += (width - learnWidth) / LEARN_DIV;
+  }
+  if (learnWidth < DROP_MIN_WIDTH_MS) learnWidth = DROP_MIN_WIDTH_MS;
+  adaptTriggerFromLearning();
+}
+
+// พัลส์นี้ "หน้าตาเหมือนหยด" ที่เครื่องรู้จักหรือไม่
+// ใช้คัดจังหวะที่ถุงน้ำเกลือแกว่งตอนคนไข้เดิน ซึ่งทำให้สัญญาณเบนแรงแต่ไต่ขึ้นช้า
+// และค้างนานกว่าหยดจริงหลายเท่า
+bool pulseLooksLikeDrop(int peak, int width, int riseMs) {
+  if (width < DROP_MIN_WIDTH_MS || width > DROP_MAX_WIDTH_MS) return false;
+  if (!shapeGateEnabled || learnAmp <= 0) return true;
+
+  (void)riseMs;
+  if (peak < (learnAmp * LEARN_MIN_AMP_PCT) / 100) return false;      // จางเกินกว่าจะเป็นหยด
+
+  int wMax = learnWidth * LEARN_MAX_WIDTH_MUL + 20;
+  if (width > wMax) return false;                                     // ค้างนานผิดรูปหยด
+  return true;
 }
 
 // บันทึกหยด 1 หยด — eventMs คือเวลาที่พัลส์ "เริ่ม" ซึ่งเป็นจังหวะจริงที่หยดผ่านลำแสง
@@ -691,9 +765,19 @@ bool serviceDropSensor(bool countDrops) {
 
   sensorRaw = analogRead(SENSOR_AO_PIN);
 
-  // ขาดช่วงการอ่านนาน (เช่นเพิ่งวาดจอทั้งหน้า) -> ตั้งต้นใหม่ ไม่เดาพัลส์ที่เห็นไม่ครบ
-  if (!sensorReady || dtUs > (uint32_t)SENSOR_GAP_RESYNC_MS * 1000UL) {
-    resetSignalChain(sensorRaw);
+  if (!sensorReady) { resetSignalChain(sensorRaw); return false; }
+
+  // อ่านขาดช่วงนาน (เช่นเพิ่งวาดจอทั้งหน้า) — ทิ้งเฉพาะพัลส์ที่กำลังดำเนินอยู่ เพราะมองเห็นไม่ครบ
+  // แต่ต้อง "เก็บเส้นฐานเดิมไว้" เพราะเป็นค่าที่สะสมมานาน ถ้าตั้งต้นใหม่ทุกครั้งที่วาดจอ
+  // ตัวตรวจจับจะถูกดีดกลับไปเฟสรอนิ่งเรื่อย ๆ จนแทบไม่มีจังหวะเฝ้ารอหยดเลย
+  if (dtUs > (uint32_t)SENSOR_GAP_RESYNC_MS * 1000UL) {
+    for (int i = 0; i < SENSOR_MEDIAN_N; i++) medBuf[i] = sensorRaw;
+    sensorFiltered = sensorRaw;
+    if (dropPhase == DP_ACTIVE) rejectedPulses++;
+    dropPhase = DP_REARM;
+    dropPhaseMs = millis();
+    dropSettleMs = dropPhaseMs;
+    sampleGaps++;
     return false;
   }
 
@@ -701,19 +785,47 @@ bool serviceDropSensor(bool countDrops) {
   sensorBaseline = (int)(baselineAcc / 256);
   sensorDelta    = deltaFromBaseline(sensorFiltered);
 
+  // อัตราการไล่ตามคิดจากเวลาที่ผ่านไปจริง (หน่วย 100 us) ไม่ใช่จำนวนตัวอย่าง
+  long tick = (long)(dtUs / 100);
+  if (tick < 1)   tick = 1;
+  if (tick > 200) tick = 200;
+
+  // แยก "ส่วนที่ไต่ขึ้นเร็ว" ออกจาก "ส่วนที่ค่อย ๆ เลื่อน"
+  // ถุงน้ำเกลือแกว่งตอนคนไข้เดินทำให้สัญญาณส่ายเป็นจังหวะหลายร้อยมิลลิวินาที
+  // ตัวตามช้าจะไล่ตามส่วนนั้นได้ทัน แล้วหักออกจนเหลือศูนย์
+  // ส่วนหยดที่กว้างแค่ราว 10 ms ตัวตามช้าตามไม่ทัน จึงเหลือเป็นยอดแหลมให้จับ
+  // (หยุดไล่ตามระหว่างที่พัลส์กำลังดำเนินอยู่ ไม่งั้นจะกลืนหยดหายไปเอง)
+  if (dropPhase != DP_ACTIVE) {
+    long tau = inMotion ? DELTA_SLOW_TAU_MOTION : DELTA_SLOW_TAU;
+    deltaSlowAcc += ((long)sensorDelta * 256 - deltaSlowAcc) * tick / tau;
+  }
+  deltaSlow = (int)(deltaSlowAcc / 256);
+  deltaEdge = sensorDelta - deltaSlow;
+
   unsigned long nowMs = millis();
   bool completed = false;
 
   // เส้นฐานไล่ตามการดริฟต์ (อุณหภูมิ/แสงรอบข้าง/แรงดันไฟ)
   // ต้องไล่ตามทั้งในเฟสเฝ้าดูและเฟสรอนิ่ง หยุดเฉพาะตอนที่พัลส์กำลังดำเนินอยู่เท่านั้น
   // (ถ้าหยุดตามในเฟสรอนิ่งด้วย ระดับที่ไหลไปเรื่อย ๆ จะดันให้ค้างอยู่ในเฟสนั้นตลอดไป)
-  if (dropPhase != DP_ACTIVE) {
-    long step = BASELINE_STEP_DIV;
-    if (dropPhase == DP_REARM && sensorDelta > dropReleaseDelta)
-      step = BASELINE_STEP_DIV / 4;                    // ค้างเหนือเกณฑ์ปลด -> ดึงกลับเร็วขึ้น
-    baselineAcc += ((long)sensorFiltered * 256 - baselineAcc) / step;
+  // ถุงน้ำเกลือแกว่งตอนคนไข้เดิน = เส้นฐานเคลื่อนเป็นช่วง ๆ ตรวจไว้เพื่อไล่ตามให้ทัน
+  if (nowMs - motionCheckMs >= MOTION_WINDOW_MS) {
+    motionLevel = abs(sensorBaseline - baselineRef);
+    baselineRef = sensorBaseline;
+    motionCheckMs = nowMs;
+    int thr = (calNoisePp > 4) ? calNoisePp : 4;
+    if (motionLevel > thr) motionUntil = nowMs + MOTION_HOLD_MS;
+  }
+  inMotion = (nowMs < motionUntil);
 
-    if (dropPhase == DP_IDLE && abs(sensorDelta) < dropTriggerDelta / 2) {  // วัดสัญญาณรบกวนจากช่วงที่สงบจริง ๆ
+  if (dropPhase != DP_ACTIVE) {
+    long tau = BASELINE_TAU;
+    if (inMotion) tau = BASELINE_TAU_FAST;             // กำลังแกว่ง -> ไล่ตามเร็วขึ้น
+    if (dropPhase == DP_REARM && deltaEdge > dropReleaseDelta)
+      tau = BASELINE_TAU_FAST;                         // ค้างเหนือเกณฑ์ปลด -> ดึงกลับเร็วขึ้น
+    baselineAcc += ((long)sensorFiltered * 256 - baselineAcc) * tick / tau;
+
+    if (dropPhase == DP_IDLE && abs(deltaEdge) < dropTriggerDelta / 2) {  // วัดสัญญาณรบกวนจากช่วงที่สงบจริง ๆ
       if (sensorFiltered < noiseMin) noiseMin = sensorFiltered;
       if (sensorFiltered > noiseMax) noiseMax = sensorFiltered;
     }
@@ -726,26 +838,33 @@ bool serviceDropSensor(bool countDrops) {
 
   switch (dropPhase) {
     case DP_IDLE:
-      if (sensorDelta >= dropTriggerDelta) {
+      if (deltaEdge >= dropTriggerDelta) {
         dropPhase = DP_ACTIVE;
         dropPhaseMs = nowMs;
-        dropPeakDelta = sensorDelta;
+        dropPeakDelta = deltaEdge;
+        dropRiseMs = 0;
       }
       break;
 
     case DP_ACTIVE: {
-      if (sensorDelta > dropPeakDelta) dropPeakDelta = sensorDelta;
+      if (deltaEdge > dropPeakDelta) {
+        dropPeakDelta = deltaEdge;
+        dropRiseMs = nowMs - dropPhaseMs;      // ยอดใหม่ -> ขอบขาขึ้นยังไต่อยู่
+      }
       unsigned long width = nowMs - dropPhaseMs;
 
-      if (sensorDelta <= dropReleaseDelta) {
+      if (deltaEdge <= dropReleaseDelta) {
         // พัลส์จบ -> ตัดสินใจ "ที่เดียว" จึงนับได้ไม่เกิน 1 ครั้งต่อ 1 พัลส์
-        if (width >= DROP_MIN_WIDTH_MS) {
+        if (pulseLooksLikeDrop(dropPeakDelta, (int)width, (int)dropRiseMs)) {
           lastDropPeak    = dropPeakDelta;
           lastDropWidthMs = (int)width;
+          lastDropRiseMs  = (int)dropRiseMs;
           completed = true;
+          completedPulses++;
+          learnFromPulse(dropPeakDelta, (int)width);
           if (countDrops) registerDrop(dropPhaseMs);
         } else {
-          rejectedPulses++;                 // แคบเกินกว่าจะเป็นหยด = สัญญาณรบกวน
+          rejectedPulses++;                 // รูปร่างไม่ใช่หยด (รบกวน/ถุงแกว่ง/สิ่งบังลำแสง)
         }
         dropPhase = DP_REARM;
         dropPhaseMs = nowMs;
@@ -764,7 +883,7 @@ bool serviceDropSensor(bool countDrops) {
     case DP_REARM:
       // ต้องกลับมานิ่งใต้เกณฑ์ปลดต่อเนื่องครบเวลา จึงจะรับพัลส์ถัดไป
       // นี่คือส่วนที่ทำให้ "กดสวิตช์แล้วลั่น" หายไป
-      if (sensorDelta > dropReleaseDelta) {
+      if (deltaEdge > dropReleaseDelta) {
         dropSettleMs = nowMs;                          // ยังไม่นิ่ง เริ่มจับเวลานิ่งใหม่
       } else if (nowMs - dropSettleMs >= DROP_REARM_MS) {
         dropPhase = DP_IDLE;
@@ -848,6 +967,10 @@ void scopeDraw(int y) {
   int yNoise = scopeYof(y, sensorNoisePp);
 
   for (int i = 0; i < SCOPE_W; i++) {
+    // การวาดกราฟทั้งแถบใช้เวลาหลายสิบมิลลิวินาทีบนจอจริง ถ้าปล่อยให้ขาดการอ่าน
+    // ตลอดช่วงนั้น ตัวตรวจจับจะถูกดีดกลับไปเฟสรอนิ่งทุกครั้งที่วาดจอ จนไม่เหลือ
+    // จังหวะเฝ้ารอหยดเลย จึงต้องแทรกการอ่านเซนเซอร์ไว้ระหว่างวาดด้วย
+    if ((i % 12) == 0) serviceDropSensor(false);
     int x = SCOPE_X + i;
     int v = scopeCol[(scopeHead + i) % SCOPE_W];
     int yTop = scopeYof(y, v);
@@ -943,7 +1066,7 @@ void calWaitRelease() {
 
 // แถวค่าตัวเลขในการ์ดผลลัพธ์ (ล้างพื้นก่อนเขียนเสมอ เพื่อไม่ให้ตัวเลขเก่าค้าง)
 void calRow(int y, const String &label, const String &value, uint16_t col) {
-  tft.fillRect(12, y, 148, 14, THEME_NAVY);
+  tft.fillRect(10, y, 152, 14, THEME_NAVY);
   textAt(label, 12, y, 1, UI_DIM, THEME_NAVY);
   textAt(value, 78, y, 1, col, THEME_NAVY);
 }
@@ -968,13 +1091,13 @@ bool calStepNoise() {
 
   while (millis() - start < CAL_NOISE_MS) {
     if (serviceDropSensor(false)) { /* ไม่นับระหว่างคาลิเบรต */ }
-    scopePush(sensorDelta);
+    scopePush(deltaEdge);   // แสดงสัญญาณเดียวกับที่ตัวตรวจจับใช้ตัดสิน
     if (sensorFiltered < wMin) wMin = sensorFiltered;
     if (sensorFiltered > wMax) wMax = sensorFiltered;
 
     if (calButtonPressed()) { calWaitRelease(); scopeFixedFull = 0; return false; }
 
-    if (millis() - lastDraw >= 100) {
+    if (millis() - lastDraw >= 150) {
       lastDraw = millis();
       scopeDraw(SCOPE_TOP);
       int pct = (int)((millis() - start) * 100 / CAL_NOISE_MS);
@@ -1021,6 +1144,10 @@ bool calStepLearn() {
   dropReleaseDelta = probe * 2 / 5;
   if (dropReleaseDelta < 2) dropReleaseDelta = 2;
 
+  // ระหว่างขั้นนี้ให้รับพัลส์ทุกแบบก่อน เพราะยังไม่รู้ว่าหยดหน้าตาอย่างไร
+  learnAmp = 0; learnWidth = 0;
+  shapeGateEnabled = false;
+
   // ---- เดาทิศสัญญาณ: ดูว่าค่าเบนออกจากเส้นฐานไปทางไหนแรงกว่ากัน ----
   dropPolarity = -1;
   resetSignalChain(readSensorAverage(16));
@@ -1052,35 +1179,47 @@ bool calStepLearn() {
   // ---- เก็บพัลส์จริง ----
   unsigned long start = millis();
   lastDraw = 0;
+  uint32_t seenPulses = completedPulses;
   while (calCount < CAL_TARGET_DROPS && millis() - start < CAL_LEARN_TIMEOUT_MS) {
-    if (serviceDropSensor(false)) {
-      if (lastDropWidthMs <= DROP_MAX_WIDTH_MS && calCount < CAL_MAX_SAMPLES) {
+    serviceDropSensor(false);
+    // อ่านจากตัวนับ ไม่ใช่ค่าที่ฟังก์ชันคืนมา เพราะพัลส์อาจจบระหว่างที่กำลังวาดกราฟอยู่
+    if (completedPulses != seenPulses) {
+      seenPulses = completedPulses;
+      if (calCount < CAL_MAX_SAMPLES) {
         calPeaks[calCount]  = lastDropPeak;
         calWidths[calCount] = lastDropWidthMs;
         calCount++;
         calBeep(2600, 25);
       }
     }
-    scopePush(sensorDelta);
+    // ได้หยดพอประมาณและความสูงใกล้เคียงกันแล้ว = รู้จักหยดแล้ว ไม่ต้องรอให้ครบ
+    if (calCount >= CAL_QUICK_DROPS) {
+      int mn = calMinOf(calPeaks, calCount), mx = calMaxOf(calPeaks, calCount);
+      if (mx > 0 && (mx - mn) * 100 / mx <= CAL_QUICK_SPREAD_PCT) break;
+    }
+    scopePush(deltaEdge);   // แสดงสัญญาณเดียวกับที่ตัวตรวจจับใช้ตัดสิน
 
     if (calButtonPressed()) { calWaitRelease(); break; }
 
-    if (millis() - lastDraw >= 100) {
+    if (millis() - lastDraw >= 150) {
       lastDraw = millis();
       scopeDraw(SCOPE_TOP);
       calRow(190, "DROPS", String(calCount) + " / " + String(CAL_TARGET_DROPS),
              (calCount >= CAL_MIN_DROPS) ? COLOR_GREEN : COLOR_YELLOW);
       calRow(208, "LAST PK", String(lastDropPeak) + " adc", COLOR_WHITE);
       calRow(226, "LAST W", String(lastDropWidthMs) + " ms", COLOR_WHITE);
-      calRow(244, "REJECT", String(rejectedPulses) + "  RE " + String(baselineRecovers),
+      calRow(244, "REJECT", String(rejectedPulses) + " RE " + String(baselineRecovers) +
+                            " GAP " + String(sampleGaps),
              (rejectedPulses || baselineRecovers) ? COLOR_ORANGE : UI_DIM);
       const char* ph = (dropPhase == DP_IDLE) ? "WATCH" : (dropPhase == DP_ACTIVE) ? "PULSE" : "SETTLE";
-      calRow(262, ph, String(sensorDelta) + " / " + String(dropTriggerDelta), THEME_SKYBLUE);
+      calRow(262, ph, String(deltaEdge) + " / " + String(dropTriggerDelta) +
+             (inMotion ? "  MOVE" : ""), THEME_SKYBLUE);
     }
     calServiceBeep();
     delay(1);
   }
 
+  shapeGateEnabled = true;
   if (calCount < CAL_MIN_DROPS) {
     calRow(262, "RESULT", "NOT ENOUGH DROPS", COLOR_RED);
     modalSafeBeep(700, 250);
@@ -1117,6 +1256,11 @@ void calFinish() {
   dropReleaseDelta = dropTriggerDelta * 2 / 5;
   if (dropReleaseDelta < 2) dropReleaseDelta = 2;
 
+  // ให้ตัวเรียนรู้เริ่มจากค่ากลางที่วัดได้จริง แล้วค่อยปรับตัวต่อไปเองระหว่างใช้งาน
+  learnAmp   = medPeak;
+  learnWidth = medWidth;
+  shapeGateEnabled = true;
+
   calDropAmp = medPeak;
   calSnrX10  = (uint8_t)min(255L, (long)medPeak * 10 / max(1, calNoisePp));
   int spreadPct = (medPeak > 0) ? ((maxPeak - minPeak) * 100 / medPeak) : 999;
@@ -1135,6 +1279,8 @@ void calFinish() {
   stationPrefs.putInt("noise", calNoisePp);
   stationPrefs.putUChar("snr", calSnrX10);
   stationPrefs.putUChar("q",   calQuality);
+  stationPrefs.putInt("lamp",  learnAmp);
+  stationPrefs.putInt("lwid",  learnWidth);
   stationPrefs.end();
 
   calHeader("STEP 3 OF 3   RESULT", "SETTINGS SAVED", "click to verify");
@@ -1181,12 +1327,14 @@ void calVerify() {
   unsigned long start = millis();
   unsigned long lastDraw = 0;
 
+  uint32_t seenPulses = completedPulses;
   while (millis() - start < CAL_VERIFY_MS) {
-    if (serviceDropSensor(false)) { seen++; calBeep(2800, 25); }
-    scopePush(sensorDelta);
+    serviceDropSensor(false);
+    if (completedPulses != seenPulses) { seenPulses = completedPulses; seen++; calBeep(2800, 25); }
+    scopePush(deltaEdge);   // แสดงสัญญาณเดียวกับที่ตัวตรวจจับใช้ตัดสิน
     if (calButtonPressed()) { calWaitRelease(); break; }
 
-    if (millis() - lastDraw >= 100) {
+    if (millis() - lastDraw >= 150) {
       lastDraw = millis();
       scopeDraw(SCOPE_TOP);
       tft.fillRect(12, 170, 148, 34, THEME_NAVY);
@@ -1818,17 +1966,20 @@ void updatePage3Dynamic() {
   }
 
   // แสดง "ระยะเบนจากเส้นฐาน" สด ๆ : ใกล้ 0 = ช่วงว่าง, พุ่งขึ้น = หยดกำลังผ่านลำแสง
-  String sensorKey = String(sensorDelta / 4) + ":" + String((int)dropPhase) + ":" + String(calQuality);
+  String sensorKey = String(deltaEdge / 4) + ":" + String((int)dropPhase) + ":" +
+                     String(learnAmp / 4) + ":" + String(inMotion ? 1 : 0);
   if (sensorKey != cacheP3b) {
     cacheP3b = sensorKey;
-    textAt(padTo("D " + String(sensorDelta), 10), 14, 118, 2,
+    textAt(padTo("D " + String(deltaEdge), 10), 14, 118, 2,
            (dropPhase == DP_ACTIVE) ? COLOR_YELLOW : COLOR_WHITE, UI_CARD);
     textAt(padTo("TRIG " + String(dropTriggerDelta) + "  NOISE " + String(sensorNoisePp), 22),
            14, 144, 1, UI_DIM, UI_CARD);
-    String q = calQuality ? ("SNR " + String(calSnrX10 / 10) + "." + String(calSnrX10 % 10) +
-                             "x " + String(calQualityWord(calQuality)))
-                          : String("NOT CALIBRATED");
-    textAt(padTo(q, 22), 14, 160, 1, calQuality ? UI_DIM : COLOR_ORANGE, UI_CARD);
+    String third;
+    uint16_t tcol = UI_DIM;
+    if (inMotion) { third = "MOVING - bag swinging"; tcol = COLOR_YELLOW; }
+    else if (learnAmp > 0) third = "LEARNED " + String(learnAmp) + " / " + String(learnWidth) + "ms";
+    else { third = "NOT CALIBRATED"; tcol = COLOR_ORANGE; }
+    textAt(padTo(third, 22), 14, 160, 1, tcol, UI_CARD);
   }
 
   float bv = readStationBattery();
@@ -2326,7 +2477,11 @@ void setup() {
   calNoisePp       = stationPrefs.getInt("noise", 0);
   calSnrX10        = stationPrefs.getUChar("snr", 0);
   calQuality       = stationPrefs.getUChar("q",   0);
+  learnAmp         = stationPrefs.getInt("lamp",  0);
+  learnWidth       = stationPrefs.getInt("lwid",  0);
   stationPrefs.end();
+  if (learnWidth < DROP_MIN_WIDTH_MS || learnWidth > DROP_MAX_WIDTH_MS) learnWidth = 0;
+  if (learnAmp < 0) learnAmp = 0;
   if (dropPolarity != 1) dropPolarity = -1;
   if (dropTriggerDelta < CAL_MIN_TRIGGER) dropTriggerDelta = CAL_DEFAULT_TRIGGER;
   if (dropReleaseDelta < 2 || dropReleaseDelta >= dropTriggerDelta)
