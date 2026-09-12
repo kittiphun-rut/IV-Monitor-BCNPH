@@ -13,6 +13,7 @@
 | `firmware/ESP32-S3-Host-V_4_7_0/` | **เฟิร์มแวร์ Host รุ่นตัดระบบจัดการ Wi-Fi ออก** — ทำงานเป็น Access Point อย่างเดียว รองรับมือถือพร้อมกันได้ 8 เครื่อง |
 | `firmware/ESP32-S3-FlowSim-Lab/` | **เฟิร์มแวร์แบบจำลองกราฟการไหล + ทดสอบเซนเซอร์** (ไม่เชื่อมต่อ Host) — ใช้ทดลอง สาธิต และออกแบบหน้าจอ |
 | `firmware/reference/` | เฟิร์มแวร์ตัวจริงที่ใช้อ้างอิง: Station v7.3.0 / v7.4.0 และ Host v4.6.0 |
+| `tools/check-ino-types.py` | ตรวจว่า enum/struct ถูกประกาศก่อนจุดที่ Arduino แทรก prototype (กัน error `does not name a type`) |
 | `tools/screen-preview/` | เครื่องมือเรนเดอร์ภาพหน้าจอ TFT จากไฟล์ .ino บนเครื่อง PC |
 | `tools/touch-preview/` | เรนเดอร์ภาพหน้าจอของเฟิร์มแวร์ Host จอสัมผัส v4.9.0 บน PC |
 | `tools/host-preview/` | เรนเดอร์ภาพหน้าจอ TFT ของเฟิร์มแวร์ Host v4.8.0-TFT บน PC |

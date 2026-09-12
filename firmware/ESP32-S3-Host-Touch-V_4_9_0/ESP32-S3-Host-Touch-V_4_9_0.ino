@@ -198,6 +198,11 @@ unsigned long manualFocusUntil = 0;
 bool displaySleeping        = false;
 bool isPowerOffProgressActive = false;
 
+// ---- ชนิดข้อมูลที่ใช้เป็นพารามิเตอร์ของฟังก์ชันวาดจอ ----
+// ต้องประกาศไว้ตอนต้นไฟล์ เพราะ Arduino IDE แทรก prototype ของฟังก์ชันไว้ก่อนส่วนแสดงผล
+enum BedUiStatus { BU_NORMAL = 0, BU_FAST, BU_SLOW, BU_NOFLOW, BU_NEAREND, BU_DONE, BU_PAUSED, BU_OFFLINE };
+struct TouchZone { int x, y, w, h; };
+
 // ---- สถานะของแอปบนจอสัมผัส (ไฟล์ .ino สร้าง prototype ให้เฉพาะฟังก์ชัน ตัวแปรจึงต้องประกาศไว้ก่อน) ----
 enum UiScreen {
   SCR_HOME = 0,   // หน้าหลักแบบ FOCUS
@@ -1101,9 +1106,6 @@ String cacheSide[MAX_SUPPORTED_STATIONS];
 String cacheBedKey = "", cacheAlarmRate = "", cacheNumValue = "";
 int    cachePct = -999;
 
-// ---- สถานะเตียงสำหรับการแสดงผล ----
-enum BedUiStatus { BU_NORMAL = 0, BU_FAST, BU_SLOW, BU_NOFLOW, BU_NEAREND, BU_DONE, BU_PAUSED, BU_OFFLINE };
-
 BedUiStatus bedUiStatus(int i) {
   if (!isStationOnline(i)) return BU_OFFLINE;
   const StationData &s = stations[i];
@@ -1190,9 +1192,7 @@ void drawBatteryIcon(int x, int y, int pct) {
   if (w > 0) tft.fillRect(x + 2, y + 2, w, 6, c);
 }
 
-// ---- ปุ่มบนจอ (ความสูงอย่างน้อย 34 px เพื่อให้แตะง่าย) ----
-struct TouchZone { int x, y, w, h; };
-
+// ---- ปุ่มบนจอ (ความสูงอย่างน้อย 34 px เพื่อให้แตะง่าย) — struct TouchZone ประกาศไว้ตอนต้นไฟล์ ----
 bool zoneHit(const TouchZone &z, int tx, int ty) {
   return tx >= z.x && tx < z.x + z.w && ty >= z.y && ty < z.y + z.h;
 }

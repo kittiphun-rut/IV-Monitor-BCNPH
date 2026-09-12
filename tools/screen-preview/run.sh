@@ -8,6 +8,9 @@ cd "$(dirname "$0")"
 OUT="${1:-../../docs/screens}"
 SKETCH="../../firmware/ESP32-S3-FlowSim-Lab/ESP32-S3-FlowSim-Lab.ino"
 
+# ตรวจลำดับการประกาศชนิดข้อมูล (Arduino แทรก prototype ไว้ก่อนฟังก์ชันแรกของไฟล์)
+python3 ../check-ino-types.py "$SKETCH"
+
 cp "$SKETCH" sketch.cpp
 g++ -std=gnu++17 -I. -DESP_ARDUINO_VERSION_MAJOR=3 -Wall -Wno-unused-variable -o preview driver.cpp
 ./preview ops.txt
