@@ -11,7 +11,7 @@ unsigned long millis(){ return g_millis; }
 unsigned long micros(){ return g_millis*1000UL; }
 void delay(unsigned long ms){ g_millis += ms; }
 void delayMicroseconds(unsigned long us){ g_millis += us/1000; }
-void pinMode(int,int){} void digitalWrite(int,int){} int digitalRead(int){return 1;}
+void pinMode(int,int){} void digitalWrite(int,int){}
 int g_adc = 2731;
 int analogRead(int){ return g_adc; }
 void analogReadResolution(int){} void analogSetAttenuation(adc_attenuation_t){}
@@ -27,6 +27,21 @@ int esp_wifi_set_channel(uint8_t,wifi_second_chan_t){return 0;}
 int esp_wifi_get_channel(uint8_t* p,wifi_second_chan_t*){ *p=1; return 0; }
 void emitMark(const char* n){ fprintf(g_ops,"MARK %s\n",n); }
 #include "station.cpp"   // สำเนาของ .ino ที่ run.sh คัดลอกมาให้
+
+// อ่านขาแบบจำลอง (นิยามหลัง include เพื่อให้เห็นค่า BTN_PIN / DROP_DO_PIN จากสเก็ตช์)
+//  g_btnScript > 0  = ยังไม่กดปุ่ม (นับถอยหลังทีละครั้งที่อ่าน)
+//  g_btnScript == 0 = กด 1 ครั้ง แล้วปล่อยค้างเป็น HIGH ต่อไป
+int g_btnScript  = 0;
+int g_dropLevel  = 0;     // ระดับสาย DO ของเซ็นเซอร์ (Active HIGH: 0 = ว่าง)
+int digitalRead(int pin) {
+  if (pin == BTN_PIN) {
+    if (g_btnScript > 0) { g_btnScript--; return 1; }
+    if (g_btnScript == 0) { g_btnScript = -1; return 0; }
+    return 1;
+  }
+  if (pin == DROP_DO_PIN) return g_dropLevel;
+  return 1;
+}
 int main(int argc,char** argv){
   g_ops = fopen(argc>1?argv[1]:"ops.txt","w");
   setup();
@@ -76,6 +91,14 @@ int main(int argc,char** argv){
   tempConfigStationId = 3; configAutoSaveTimeout = g_millis + 4000;
   drawStationIdConfigFramework(); updateStationIdConfigDynamic(); emitMark("config_id");
   drawHoldProgressHUD(3600); emitMark("hold_hud");
+
+  // หน้าทดสอบเซ็นเซอร์: จำลองว่ากำลังมีหยดผ่าน (สาย DO = HIGH) และเคยจับพัลส์มาแล้ว
+  g_dropLevel = 1;
+  dropIsrCount = 37;
+  g_millis += 1000;
+  g_btnScript = 200;                   // ค้างหน้าจอไว้ ~400 ms ก่อน "กดปุ่ม" ออก
+  executeSensorTestScreen(); emitMark("sensor_test");
+  g_dropLevel = 0;
   fclose(g_ops);
   return 0;
 }
