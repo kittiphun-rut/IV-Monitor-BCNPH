@@ -12,6 +12,16 @@
 #define INPUT 0
 #define OUTPUT 1
 #define INPUT_PULLUP 2
+#include <ctime>
+#include <sys/time.h>
+typedef int esp_err_t;
+typedef int portMUX_TYPE;
+#define portMUX_INITIALIZER_UNLOCKED 0
+#define portENTER_CRITICAL(x) ((void)0)
+#define portEXIT_CRITICAL(x) ((void)0)
+#define ESP_IDF_VERSION_VAL(a,b,c) ((a)*10000+(b)*100+(c))
+#define ESP_IDF_VERSION ESP_IDF_VERSION_VAL(5,1,0)
+void neopixelWrite(int,int,int,int);
 enum adc_attenuation_t { ADC_0db, ADC_2_5db, ADC_6db, ADC_11db };
 class String {
 public:
@@ -23,7 +33,7 @@ public:
   String(unsigned int v) { char b[24]; snprintf(b,sizeof(b),"%u",v); s=b; }
   String(long v) { char b[24]; snprintf(b,sizeof(b),"%ld",v); s=b; }
   String(unsigned long v) { char b[24]; snprintf(b,sizeof(b),"%lu",v); s=b; }
-  String(float v) { char b[32]; snprintf(b,sizeof(b),"%g",v); s=b; }
+  String(float v, int d=-1) { char b[48]; if(d<0) snprintf(b,sizeof(b),"%g",v); else snprintf(b,sizeof(b),"%.*f",d,v); s=b; }
   unsigned int length() const { return s.size(); }
   void reserve(unsigned int n) { s.reserve(n); }
   const char* c_str() const { return s.c_str(); }
@@ -54,7 +64,7 @@ long random(long,long);
 void rgbLedWrite(int,int,int,int);
 long map(long x, long a, long b, long c, long d);
 using std::min; using std::max;
-class SerialClass { public: void begin(unsigned long) {} };
+class SerialClass { public: void begin(unsigned long) {} void println(const char*) {} void print(const char*) {} void printf(const char*,...) {} };
 extern SerialClass Serial;
 // --- ตัวควบคุมการจำลองฝั่ง host ---
 extern unsigned long g_millis;
