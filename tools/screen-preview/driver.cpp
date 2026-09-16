@@ -36,7 +36,7 @@ int analogRead(int){
 }
 void analogReadResolution(int){}
 void analogSetAttenuation(adc_attenuation_t){}
-void tone(int,unsigned int){}
+void tone(int,unsigned int,unsigned long){}
 void noTone(int){}
 void randomSeed(unsigned long s){ srand((unsigned)s); }
 long random(long m){ return m > 0 ? (long)(rand() % m) : 0; }
