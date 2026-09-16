@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""เรนเดอร์คำสั่งวาดจากเฟิร์มแวร์ (ops.txt) ออกเป็นภาพพรีวิวหน้าจอ TFT 172x320"""
+"""เรนเดอร์คำสั่งวาดจากเฟิร์มแวร์ (ops.txt) ออกเป็นภาพพรีวิวหน้าจอ TFT
+
+ใช้: render.py ops.txt outdir [กว้าง สูง [อัตราขยาย]]
+ค่าเริ่มต้นคือจอของเครื่องประจำเตียง 172x320 ขยาย 3 เท่า
+"""
 import sys, os
 from PIL import Image, ImageDraw, ImageFont
 
@@ -60,4 +64,9 @@ def main(ops_path, outdir):
     print("\n".join(saved))
 
 if __name__ == "__main__":
+    if len(sys.argv) >= 5:
+        W, H = int(sys.argv[3]), int(sys.argv[4])
+    if len(sys.argv) >= 6:
+        S = int(sys.argv[5])
+        _fonts.clear()
     main(sys.argv[1], sys.argv[2])
