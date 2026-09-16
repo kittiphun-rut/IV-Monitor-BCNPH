@@ -1,0 +1,1490 @@
+/**
+ * ============================================================================
+ * โครงการวิจัย: ผลของการใช้นวัตกรรม Smart IV Alert ต่อความแม่นยำในการแจ้งเตือนและปริมาณสารน้ำที่ได้รับ
+ * หน่วยงาน: หอผู้ป่วยอายุรกรรม โรงพยาบาลสูงเม่น อำเภอสูงเม่น จังหวัดแพร่
+ * สถาบัน: วิทยาลัยพยาบาลบรมราชชนนี แพร่ คณะพยาบาลศาสตร์ สถาบันพระบรมราชชนก
+ *
+ * ระบบ: Bed Station Node (เครื่องตรวจวัดและแจ้งเตือนประจำเตียง)
+ * เวอร์ชัน: 7.3.0 (Protocol v2 — ใช้คู่กับ Host v4.5.0 เท่านั้น)
+ * บอร์ดประมวลผล: ESP32-S3 Super Mini + จอสี TFT 1.47" (ST7789 SPI 172x320) + Passive Buzzer
+ * Arduino-ESP32 Core: 3.x
+ *
+ * สรุปการแก้ไขจาก 7.2.3:
+ *  [1] โครงสร้างแพ็กเก็ต ESP-NOW ตรงกับ Host (protocolVersion + static_assert ตรวจขนาด)
+ *  [2] ส่ง Flow rate, เวลาตั้งแต่หยดล่าสุด และแรงดันแบตเตอรี่ไปให้ Host
+ *  [3] แก้เตือน "หยุดไหล" ผิด: ไม่เตือนหลังหยดแรก / ไม่เตือนขณะพักการนับ / ใช้เวลาตั้งแต่หยดล่าสุดตามอัตราเป้าหมาย
+ *  [4] ใช้ Drop factor ที่ Host ส่งมา (10/15/20/60) แทนค่าคงที่ 20
+ *  [5] ค้นหาช่องสัญญาณของ Host อัตโนมัติ (กรณี Host ต่อ Wi-Fi เราเตอร์คนละช่องกับ CH1)
+ *  [6] รับคำสั่ง "เริ่มถุงใหม่" จาก Host (resetSeq)
+ *  [7] ข้อมูลจาก Callback ถูกส่งต่อเข้า loop อย่างปลอดภัย (ไม่แก้ตัวแปรข้าม Task)
+ *  [8] ภาพเคลื่อนไหวหยดน้ำวาดเฉพาะเมื่อสถานะเปลี่ยน ลดภาระ SPI ที่ทำให้อ่านเซนเซอร์ช้าและพลาดหยด
+ *  [9] Calibration รองรับเซนเซอร์ทั้งสองขั้ว (ค่าตอนมีหยดสูงหรือต่ำกว่าตอนไม่มีหยด)
+ * [10] Screensaver เข้าอัตโนมัติเมื่อไม่มีการใช้งาน 3 นาที, คลิกครั้งเดียวเพื่อปลุก
+ * ============================================================================
+ */
+
+#include <WiFi.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
+#include <Preferences.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
+#include <SPI.h>
+#include <time.h>
+#include <sys/time.h>
+
+#define APP_VERSION         "7.3.0"
+#define PROTOCOL_VERSION    2
+
+// ----------------------------------------------------------------------------
+// พารามิเตอร์ระบบสื่อสาร (ต้องสอดคล้องกับ Host)
+// ----------------------------------------------------------------------------
+#define DEFAULT_ESPNOW_CHANNEL  1
+#define HOST_TIMEOUT_MS         5000UL   // Host ส่ง Sync ทุก 1.5 s
+#define CHANNEL_SCAN_DWELL_MS   2000UL   // เวลาฟังต่อช่องขณะค้นหา Host
+#define SNOOZE_DURATION_MS      120000UL
+#define SCREENSAVER_IDLE_MS     180000UL
+#define STATUS_SEND_INTERVAL_MS 1000UL
+
+// ขาวัดแบตเตอรี่ (ผ่านวงจรแบ่งแรงดัน 1:2) — ตั้งเป็น -1 หากยังไม่มีวงจร จะส่งค่า 0 ให้ Host แสดง N/A
+#define STATION_BAT_ADC_PIN -1
+
+#define TFT_CS              9
+#define TFT_DC              10
+#define TFT_RST             11
+#define TFT_MOSI            12
+#define TFT_SCLK            13
+#define TFT_BLK             8
+
+#define SENSOR_AO_PIN       4
+#define BUZZER_PIN          3
+#define BTN_PIN             2
+#define RGB_LED_PIN         48
+
+#define THEME_BG            0x0000
+#define THEME_SKYBLUE       0x5DFF
+#define THEME_CYAN          0x07FF
+#define THEME_PINK          0xFD79
+#define THEME_NAVY          0x09CD
+#define THEME_DARKBOX       0x18C5
+#define THEME_MAROON        0x6000
+
+#define COLOR_WHITE         0xFFFF
+#define COLOR_GREEN         0x07E0
+#define COLOR_RED           0xF800
+#define COLOR_ORANGE        0xFD20
+#define COLOR_YELLOW        0xFFE0
+
+#ifndef ST77XX_LIGHTGREY
+  #define ST77XX_LIGHTGREY  0xC618
+#endif
+#ifndef ST77XX_DARKGREY
+  #define ST77XX_DARKGREY   0x39E7
+#endif
+
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  #define LED_WRITE(pin, r, g, b) rgbLedWrite(pin, r, g, b)
+#else
+  #define LED_WRITE(pin, r, g, b) neopixelWrite(pin, r, g, b)
+#endif
+
+SPIClass SPI_TFT(FSPI);
+Adafruit_ST7789 tft = Adafruit_ST7789(&SPI_TFT, TFT_CS, TFT_DC, TFT_RST);
+Preferences stationPrefs;
+
+enum AppState {
+  STATE_NORMAL_VIEW,
+  STATE_EMERGENCY,
+  STATE_SCREENSAVER,
+  STATE_CREDIT,
+  STATE_CONFIG_ID
+};
+
+enum AlertCode : uint8_t {
+  ALERT_NONE = 0, ALERT_TOO_FAST = 1, ALERT_TOO_SLOW = 2,
+  ALERT_NEAR_END = 3, ALERT_BAG_EMPTY = 4, ALERT_OCCLUSION = 5
+};
+
+AppState currentState       = STATE_NORMAL_VIEW;
+int currentNursePage        = 1;
+uint8_t currentStationId    = 1;
+uint8_t tempConfigStationId = 1;
+unsigned long configAutoSaveTimeout = 0;
+
+bool isRunning              = true;
+bool isClockSynced          = false;
+bool isHostOnline           = false;
+int lastHostRssi            = -100;
+bool stateNeedsRedraw       = true;
+
+int valLiquid               = 1200;
+int valAir                  = 2800;
+int dropThreshold           = 2000;
+int hysteresis              = 200;
+bool dropLowersAdc          = true;   // true = ค่า ADC ลดลงเมื่อมีหยดผ่าน
+bool dropState              = false;
+
+// ----------------------------------------------------------------------------
+// โครงสร้างข้อมูลรับ-ส่ง ESP-NOW (Protocol v2) — ต้องเหมือนกันทุกไบต์กับ Host
+// ----------------------------------------------------------------------------
+typedef struct __attribute__((packed)) struct_message {
+  uint8_t  protocolVersion;
+  uint8_t  stationId;
+  uint8_t  isRunning;
+  uint32_t totalDrops;
+  uint32_t periodDrops;
+  float    flowRateHr;
+  uint32_t msSinceLastDrop;
+  float    batteryVolts;
+} struct_message;             // 23 bytes
+
+typedef struct __attribute__((packed)) struct_host_sync {
+  uint8_t  protocolVersion;
+  uint32_t epochTime;
+  uint8_t  isSynced;
+  uint8_t  stationId;
+  float    targetRateHr;
+  float    totalPlanMl;
+  uint8_t  alertCode;
+  uint8_t  dropFactor;
+  uint8_t  resetSeq;
+} struct_host_sync;           // 18 bytes
+
+static_assert(sizeof(struct_message) == 23, "struct_message size mismatch with Host");
+static_assert(sizeof(struct_host_sync) == 18, "struct_host_sync size mismatch with Host");
+
+struct_message myData;
+uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+// ข้อมูลจาก ESP-NOW callback (WiFi task) -> loop()
+portMUX_TYPE syncMux = portMUX_INITIALIZER_UNLOCKED;
+struct_host_sync pendingOwnSync;
+volatile bool pendingOwnSyncAvailable = false;
+volatile unsigned long lastHostSeenMs = 0;
+volatile int pendingHostRssi = -100;
+
+uint8_t espnowChannel               = DEFAULT_ESPNOW_CHANNEL;
+bool channelScanning                = false;
+unsigned long lastChannelHopTime    = 0;
+unsigned long hostOfflineSince      = 0;
+
+uint32_t totalDrops                 = 0;
+uint32_t periodDropsCounter         = 0;
+
+float currentFlowRate_ml_hr         = 0.0;
+float currentGttMin                 = 0.0;
+float totalVolumeMl                 = 0.0;
+float targetRateHr                  = 0.0;   // 0 = ยังไม่ได้รับค่าจาก Host
+float totalPlanMl                   = 0.0;
+uint8_t dropFactor                  = 20;
+uint8_t currentAlertState           = ALERT_NONE;
+uint8_t lastResetSeq                = 0;
+bool resetSeqKnown                  = false;
+
+unsigned long lastDropTimestamp     = 0;
+bool hasFirstDropOccurred           = false;
+bool rateAnchorValid                = false;
+
+unsigned long lastSendTime          = 0;
+unsigned long lastDebounceTime      = 0;
+unsigned long snoozeUntilTime       = 0;
+unsigned long lastUserActivityTime  = 0;
+const unsigned long minDropInterval = 55;
+
+unsigned long buzzerBeepUntil       = 0;
+unsigned long buzzerNextBeepTime    = 0;
+
+bool isDropFalling                  = false;
+unsigned long dropFallStartTime     = 0;
+int animDropY                       = 84;
+int animDropPrevY                   = 84;
+int animMode                        = -1;
+unsigned long poolFlashUntil        = 0;
+const int CHAMBER_NOZZLE_Y          = 84;
+const int CHAMBER_POOL_Y            = 120;
+const unsigned long DROP_FALL_DURATION = 160;
+
+bool isHoldUiActive                 = false;
+bool holdBeep3sDone                 = false;
+bool holdBeep5sDone                 = false;
+unsigned long lastHoldRenderTime    = 0;
+
+uint8_t lastEmergencyAlert          = 0xFF;
+int lastLedColorCode                = -1;
+
+String lastDrawnClock = "";
+int lastDrawnBars = -1;
+bool lastDrawnHostOnline = false;
+int lastDrawnRate = -999;
+int lastDrawnTarget = -999;
+int lastDrawnVol = -999;
+int lastDrawnPlan = -999;
+String lastDrawnEtaKey = "";
+uint32_t lastDrawnDrops = 0xFFFFFFFF;
+String lastDrawnPage2Key = "";
+int lastDrawnPage3Rssi = -999;
+int lastDrawnPage3Online = -1;
+String lastScreensaverHost = "";
+
+// ----------------------------------------------------------------------------
+// ฟังก์ชันร่วมกับ Host: เวลาที่ไม่มีหยดแล้วถือว่า "หยุดไหล" (ต้องใช้สูตรเดียวกัน)
+// ----------------------------------------------------------------------------
+uint32_t calcOcclusionTimeoutMs(float rateHr, uint8_t df) {
+  uint32_t timeoutMs = 8000;
+  if (rateHr > 0 && df > 0) {
+    float gttPerMin = rateHr * df / 60.0f;
+    if (gttPerMin > 0) {
+      uint32_t d = (uint32_t)((60000.0f / gttPerMin) * 2.5f);
+      if (d > timeoutMs) timeoutMs = d;
+    }
+  }
+  if (timeoutMs > 60000) timeoutMs = 60000;
+  return timeoutMs;
+}
+
+bool isLocalOcclusion(unsigned long now) {
+  return isRunning && hasFirstDropOccurred &&
+         (now - lastDropTimestamp > calcOcclusionTimeoutMs(targetRateHr, dropFactor));
+}
+
+// รหัสเตือนที่ใช้งานจริงบนเครื่องนี้: ตรวจเองได้ (หยุดไหล) + รับจาก Host (เร็ว/ช้า/หมด)
+uint8_t getEffectiveAlert(unsigned long now) {
+  if (!isRunning) return ALERT_NONE;
+  if (isHostOnline && currentAlertState == ALERT_BAG_EMPTY) return ALERT_BAG_EMPTY;
+  if (isLocalOcclusion(now)) return ALERT_OCCLUSION;
+  if (isHostOnline && (currentAlertState == ALERT_TOO_FAST || currentAlertState == ALERT_TOO_SLOW ||
+                       currentAlertState == ALERT_OCCLUSION)) return currentAlertState;
+  return ALERT_NONE;
+}
+
+// เติมช่องว่างซ้าย-ขวาให้ข้อความยาวคงที่ เพื่อเขียนทับของเดิมได้โดยไม่ต้องล้างพื้นที่ (ไม่กะพริบ)
+String padCenter(const String &s, unsigned int width) {
+  if (s.length() >= width) return s;
+  unsigned int total = width - s.length();
+  unsigned int left = total / 2;
+  String out;
+  out.reserve(width);
+  for (unsigned int i = 0; i < left; i++) out += ' ';
+  out += s;
+  for (unsigned int i = 0; i < total - left; i++) out += ' ';
+  return out;
+}
+
+float readStationBattery() {
+#if STATION_BAT_ADC_PIN >= 0
+  uint32_t mv = analogReadMilliVolts(STATION_BAT_ADC_PIN);
+  return (mv / 1000.0f) * 2.0f;
+#else
+  return 0.0f;
+#endif
+}
+
+void drawCenteredString(const String &str, int y, uint8_t size, uint16_t color, uint16_t bg) {
+  int16_t x1, y1;
+  uint16_t w, h;
+  tft.setTextSize(size);
+  tft.getTextBounds(str, 0, y, &x1, &y1, &w, &h);
+  int x = (172 - (int)w) / 2;
+  if (x < 0) x = 0;
+  tft.setTextColor(color, bg);
+  tft.setCursor(x, y);
+  tft.print(str);
+}
+
+void setLedColor(uint8_t r, uint8_t g, uint8_t b) {
+  LED_WRITE(RGB_LED_PIN, r, g, b);
+}
+
+void beepNonBlocking(uint16_t freq, uint16_t durationMs) {
+  tone(BUZZER_PIN, freq);
+  buzzerBeepUntil = millis() + durationMs;
+}
+
+void modalSafeBeep(uint16_t freq, uint16_t durationMs) {
+  tone(BUZZER_PIN, freq);
+  delay(durationMs);
+  noTone(BUZZER_PIN);
+  buzzerBeepUntil = 0;
+}
+
+void soundClick()       { beepNonBlocking(2600, 20); }
+void soundStart()       { beepNonBlocking(2000, 70); }
+void soundStop()        { beepNonBlocking(1000, 140); }
+void soundScreensaver() { beepNonBlocking(1800, 40); }
+
+void playWelcomeMelody() {
+  int notes[] = { 1046, 1318, 1568, 2093 };
+  for (int i = 0; i < 4; i++) {
+    modalSafeBeep(notes[i], 80);
+    delay(25);
+  }
+}
+
+void handlePassiveBuzzerEngine() {
+  unsigned long now = millis();
+  if (buzzerBeepUntil > 0 && now >= buzzerBeepUntil) {
+    noTone(BUZZER_PIN);
+    buzzerBeepUntil = 0;
+  }
+
+  if (now < snoozeUntilTime) return;
+  if (currentState == STATE_CONFIG_ID || isHoldUiActive) return;
+  if (now < buzzerNextBeepTime) return;
+
+  switch (getEffectiveAlert(now)) {
+    case ALERT_OCCLUSION: beepNonBlocking(1800, 150); buzzerNextBeepTime = now + 900;  break;
+    case ALERT_TOO_FAST:  beepNonBlocking(2200, 80);  buzzerNextBeepTime = now + 700;  break;
+    case ALERT_TOO_SLOW:  beepNonBlocking(1200, 120); buzzerNextBeepTime = now + 1500; break;
+    case ALERT_BAG_EMPTY: beepNonBlocking(1500, 250); buzzerNextBeepTime = now + 1500; break;
+    default: break;
+  }
+}
+
+void drawHoldProgressHUD(unsigned long holdDur) {
+  int boxX = 6, boxY = 100, boxW = 160, boxH = 100;
+  tft.fillRoundRect(boxX, boxY, boxW, boxH, 8, THEME_NAVY);
+  tft.drawRoundRect(boxX, boxY, boxW, boxH, 8, THEME_CYAN);
+
+  int barX = boxX + 15;
+  int barY = boxY + 48;
+  int barW = 130;
+  int barH = 12;
+
+  if (holdDur < 3000) {
+    int fill = map(holdDur, 400, 3000, 0, barW);
+    if (fill < 0) fill = 0;
+    if (fill > barW) fill = barW;
+
+    drawCenteredString("BUTTON HOLDING", boxY + 12, 1, THEME_SKYBLUE, THEME_NAVY);
+    drawCenteredString("-> CALIBRATE (3s)", boxY + 28, 1, COLOR_YELLOW, THEME_NAVY);
+    tft.drawRect(barX, barY, barW, barH, COLOR_WHITE);
+    tft.fillRect(barX + 1, barY + 1, fill, barH - 2, THEME_PINK);
+    tft.fillRect(barX + 1 + fill, barY + 1, barW - fill - 2, barH - 2, THEME_NAVY);
+    drawCenteredString("Release <3s = Cancel", boxY + 82, 1, ST77XX_LIGHTGREY, THEME_NAVY);
+  } 
+  else if (holdDur < 5000) {
+    int fill = map(holdDur, 3000, 5000, 0, barW);
+    if (fill < 0) fill = 0;
+    if (fill > barW) fill = barW;
+
+    drawCenteredString("RELEASE = CALIB", boxY + 12, 1, COLOR_GREEN, THEME_NAVY);
+    drawCenteredString("-> CREDITS (5s)", boxY + 28, 1, THEME_PINK, THEME_NAVY);
+    tft.drawRect(barX, barY, barW, barH, COLOR_WHITE);
+    tft.fillRect(barX + 1, barY + 1, fill, barH - 2, THEME_CYAN);
+    tft.fillRect(barX + 1 + fill, barY + 1, barW - fill - 2, barH - 2, THEME_NAVY);
+  } 
+  else {
+    drawCenteredString(">> CREDITS READY <<", boxY + 14, 1, COLOR_GREEN, THEME_NAVY);
+    drawCenteredString("RELEASE TO VIEW", boxY + 30, 1, COLOR_YELLOW, THEME_NAVY);
+    tft.drawRect(barX, barY, barW, barH, COLOR_WHITE);
+    tft.fillRect(barX + 1, barY + 1, barW - 2, barH - 2, COLOR_GREEN);
+  }
+}
+
+int sampleSensorAveragePrecise(int samples = 40) {
+  long sum = 0;
+  for (int i = 0; i < samples; i++) {
+    sum += analogRead(SENSOR_AO_PIN);
+    delayMicroseconds(500);
+  }
+  return (int)(sum / samples);
+}
+
+int waitAndMonitorSensorStep(const char* stepTitle, const char* stepDescTh, const char* stepDescEn, uint16_t boxColor) {
+  noTone(BUZZER_PIN);
+  buzzerBeepUntil = 0;
+
+  tft.fillRoundRect(6, 36, 160, 160, 8, THEME_DARKBOX);
+  tft.drawRoundRect(6, 36, 160, 160, 8, boxColor);
+  drawCenteredString(stepTitle, 44, 1, COLOR_YELLOW, THEME_DARKBOX);
+  drawCenteredString(stepDescEn, 60, 2, COLOR_WHITE, THEME_DARKBOX);
+  drawCenteredString(stepDescTh, 82, 1, THEME_PINK, THEME_DARKBOX);
+
+  tft.fillRoundRect(20, 102, 132, 44, 6, THEME_NAVY);
+  tft.drawRoundRect(20, 102, 132, 44, 6, boxColor);
+  drawCenteredString("SENSOR LIVE ADC", 106, 1, THEME_SKYBLUE, THEME_NAVY);
+  drawCenteredString("Click Button >>", 176, 1, COLOR_WHITE, THEME_DARKBOX);
+
+  unsigned long lastAdcUpdate = 0;
+  int lastVal = -1;
+  while (digitalRead(BTN_PIN) == HIGH) {
+    if (millis() - lastAdcUpdate >= 60) {
+      lastAdcUpdate = millis();
+      int liveAdc = analogRead(SENSOR_AO_PIN);
+      if (liveAdc != lastVal) {
+        lastVal = liveAdc;
+        tft.fillRect(24, 120, 124, 20, THEME_NAVY);
+        drawCenteredString(String(liveAdc), 120, 2, COLOR_WHITE, THEME_NAVY);
+      }
+    }
+    delay(5);
+  }
+
+  modalSafeBeep(2400, 40);
+  while (digitalRead(BTN_PIN) == LOW) delay(10);
+  delay(60);
+
+  tft.fillRect(20, 102, 132, 44, THEME_NAVY);
+  drawCenteredString("SAMPLING...", 118, 1, COLOR_YELLOW, THEME_NAVY);
+  int avgVal = sampleSensorAveragePrecise(50);
+  modalSafeBeep(1800, 60);
+
+  return avgVal;
+}
+
+void executeButtonCalibrationWizard() {
+  noTone(BUZZER_PIN);
+  buzzerBeepUntil = 0;
+
+  tft.fillScreen(THEME_BG);
+  tft.fillRect(0, 0, 172, 28, THEME_PINK);
+  drawCenteredString("CALIBRATION WIZARD", 8, 1, COLOR_WHITE, THEME_PINK);
+
+  int newLiquid = waitAndMonitorSensorStep("STEP 1 OF 2", "(กระเปาะมีสารน้ำ)", "FILL LIQUID", THEME_SKYBLUE);
+  int newAir    = waitAndMonitorSensorStep("STEP 2 OF 2", "(กระเปาะเปล่าไม่มีน้ำ)", "EMPTY CHAMBER", THEME_PINK);
+
+  int diff = abs(newLiquid - newAir);
+  tft.fillRoundRect(6, 204, 160, 108, 8, THEME_NAVY);
+  tft.drawRoundRect(6, 204, 160, 108, 8, (diff >= 80) ? COLOR_GREEN : COLOR_RED);
+
+  if (diff >= 80) {
+    valLiquid     = newLiquid;
+    valAir        = newAir;
+    dropThreshold = (valLiquid + valAir) / 2;
+    dropLowersAdc = (valLiquid < valAir);   // รองรับเซนเซอร์ทั้งสองขั้ว
+    hysteresis    = (int)(diff * 0.20);
+    if (hysteresis < 60)  hysteresis = 60;
+    if (hysteresis > 300) hysteresis = 300;
+
+    stationPrefs.begin("st_cal", false);
+    stationPrefs.putInt("v_liq", valLiquid);
+    stationPrefs.putInt("v_air", valAir);
+    stationPrefs.putInt("th", dropThreshold);
+    stationPrefs.putInt("hys", hysteresis);
+    stationPrefs.end();
+
+    drawCenteredString("CALIBRATION OK!", 212, 1, COLOR_GREEN, THEME_NAVY);
+    drawCenteredString(dropLowersAdc ? "Mode: drop = LOW ADC" : "Mode: drop = HIGH ADC", 232, 1, COLOR_WHITE, THEME_NAVY);
+    modalSafeBeep(2000, 100);
+    delay(100);
+    modalSafeBeep(2500, 150);
+    delay(1500);
+  } else {
+    // ไม่บันทึกค่าที่ล้มเหลว — คงค่าเดิมไว้
+    drawCenteredString("FAILED: DIFF LOW!", 216, 1, COLOR_RED, THEME_NAVY);
+    drawCenteredString("Keep previous values", 234, 1, COLOR_WHITE, THEME_NAVY);
+    modalSafeBeep(800, 200);
+    delay(1500);
+  }
+  dropState = false;
+  lastUserActivityTime = millis();
+  stateNeedsRedraw = true;
+}
+
+#if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+void OnTimeSyncRecv(const esp_now_recv_info_t *info, const uint8_t *incomingDataBytes, int len) {
+  int rssi = (info && info->rx_ctrl) ? info->rx_ctrl->rssi : -55;
+#else
+void OnTimeSyncRecv(const uint8_t *mac, const uint8_t *incomingDataBytes, int len) {
+  int rssi = -55;
+#endif
+  // ทำงานใน WiFi task: คัดลอกข้อมูลแล้วส่งต่อให้ loop() เท่านั้น
+  if (len != sizeof(struct_host_sync)) return;   // แพ็กเก็ตของ Station อื่น (23 bytes) ถูกกรองออกที่นี่
+  struct_host_sync syncData;
+  memcpy(&syncData, incomingDataBytes, sizeof(syncData));
+  if (syncData.protocolVersion != PROTOCOL_VERSION) return;
+
+  portENTER_CRITICAL(&syncMux);
+  lastHostSeenMs = millis();
+  pendingHostRssi = rssi;
+  if (syncData.stationId == currentStationId) {
+    pendingOwnSync = syncData;
+    pendingOwnSyncAvailable = true;
+  }
+  portEXIT_CRITICAL(&syncMux);
+}
+
+void resetDropCounters() {
+  totalDrops = 0;
+  periodDropsCounter = 0;
+  currentFlowRate_ml_hr = 0.0;
+  currentGttMin = 0.0;
+  totalVolumeMl = 0.0;
+  hasFirstDropOccurred = false;
+  rateAnchorValid = false;
+  dropState = false;
+  snoozeUntilTime = 0;
+  lastDrawnDrops = 0xFFFFFFFF;
+  stateNeedsRedraw = true;
+  beepNonBlocking(2400, 120);
+}
+
+void processHostLink(unsigned long now) {
+  struct_host_sync s;
+  bool haveOwn = false;
+  unsigned long seen;
+  int rssi;
+
+  portENTER_CRITICAL(&syncMux);
+  seen = lastHostSeenMs;
+  rssi = pendingHostRssi;
+  if (pendingOwnSyncAvailable) {
+    s = pendingOwnSync;
+    pendingOwnSyncAvailable = false;
+    haveOwn = true;
+  }
+  portEXIT_CRITICAL(&syncMux);
+  now = millis();   // อ่านหลังคัดลอก เพื่อไม่ให้ now < seen
+
+  bool online = (seen != 0) && (now - seen <= HOST_TIMEOUT_MS);
+  if (online) {
+    lastHostRssi = rssi;
+    if (channelScanning) {
+      channelScanning = false;
+      stationPrefs.begin("st_cfg", false);
+      stationPrefs.putUChar("ch", espnowChannel);
+      stationPrefs.end();
+    }
+  } else if (isHostOnline) {
+    hostOfflineSince = now;
+    currentAlertState = ALERT_NONE;   // ค่าจาก Host เก่าเกินไป ไม่ใช้ต่อ (ยังตรวจหยุดไหลเองได้)
+  }
+  isHostOnline = online;
+
+  if (haveOwn) {
+    if (s.epochTime > 1600000000UL) {
+      struct timeval tv = { (time_t)s.epochTime, 0 };
+      settimeofday(&tv, NULL);
+      isClockSynced = (s.isSynced == 1);
+    }
+    targetRateHr      = s.targetRateHr;
+    totalPlanMl       = s.totalPlanMl;
+    currentAlertState = s.alertCode;
+    if (s.dropFactor == 10 || s.dropFactor == 15 || s.dropFactor == 20 || s.dropFactor == 60) {
+      dropFactor = s.dropFactor;
+    }
+    if (!resetSeqKnown) {
+      lastResetSeq = s.resetSeq;
+      resetSeqKnown = true;
+    } else if (s.resetSeq != lastResetSeq) {
+      lastResetSeq = s.resetSeq;
+      resetDropCounters();
+    }
+  }
+
+  // ค้นหาช่องสัญญาณของ Host เมื่อขาดการติดต่อเกิน Timeout
+  if (!isHostOnline && (now - hostOfflineSince >= HOST_TIMEOUT_MS) &&
+      (now - lastChannelHopTime >= CHANNEL_SCAN_DWELL_MS)) {
+    espnowChannel = (espnowChannel % 13) + 1;
+    esp_wifi_set_channel(espnowChannel, WIFI_SECOND_CHAN_NONE);
+    lastChannelHopTime = now;
+    channelScanning = true;
+  }
+}
+
+// ตรวจจับหยดน้ำอย่างเงียบสนิท
+void checkAnalogDrop() {
+  unsigned long now = millis();
+
+  if (isRunning) {
+    int sensorValue = analogRead(SENSOR_AO_PIN);
+    bool dropDetected, dropReleased;
+    if (dropLowersAdc) {
+      dropDetected = sensorValue < dropThreshold;
+      dropReleased = sensorValue > (dropThreshold + hysteresis);
+    } else {
+      dropDetected = sensorValue > dropThreshold;
+      dropReleased = sensorValue < (dropThreshold - hysteresis);
+    }
+
+    if (!dropState && dropDetected) {
+      if (now - lastDebounceTime > minDropInterval) {
+        dropState = true;
+        totalDrops++;
+        periodDropsCounter++;
+        lastDebounceTime = now;
+
+        isDropFalling = true;
+        dropFallStartTime = now;
+        animDropY = CHAMBER_NOZZLE_Y;
+
+        if (rateAnchorValid) {
+          unsigned long dropDeltaMs = now - lastDropTimestamp;
+          if (dropDeltaMs > minDropInterval && dropDeltaMs < 60000) {
+            float instantGttMin = 60000.0f / (float)dropDeltaMs;
+            float instantRateMlHr = (instantGttMin * 60.0f) / (float)dropFactor;
+            if (currentFlowRate_ml_hr == 0.0f) currentFlowRate_ml_hr = instantRateMlHr;
+            else currentFlowRate_ml_hr = (instantRateMlHr * 0.75f) + (currentFlowRate_ml_hr * 0.25f);
+          }
+        }
+        rateAnchorValid = true;
+        hasFirstDropOccurred = true;
+        lastDropTimestamp = now;
+      }
+    }
+    else if (dropState && dropReleased) {
+      dropState = false;
+    }
+  }
+
+  // อัตราไหลลดลงตามเวลาจริงเมื่อหยดช้ากว่าที่คาด และเป็น 0 เมื่อเกิน Occlusion timeout
+  if (isRunning && hasFirstDropOccurred && currentFlowRate_ml_hr > 0.0f) {
+    unsigned long elapsed = now - lastDropTimestamp;
+    float expectedMs = 60000.0f / (currentFlowRate_ml_hr * dropFactor / 60.0f);
+    if (elapsed > expectedMs * 1.5f && elapsed > 0) {
+      float capRate = (60000.0f / (float)elapsed) * 60.0f / (float)dropFactor;
+      if (capRate < currentFlowRate_ml_hr) currentFlowRate_ml_hr = capRate;
+    }
+    if (elapsed > calcOcclusionTimeoutMs(targetRateHr, dropFactor)) currentFlowRate_ml_hr = 0.0f;
+  }
+  currentGttMin = (currentFlowRate_ml_hr * dropFactor) / 60.0f;
+  totalVolumeMl = totalDrops / (float)dropFactor;
+}
+
+String getStationClockStr() {
+  time_t now;
+  time(&now);
+  struct tm *timeinfo = localtime(&now);
+  char buf[12];
+  if (isClockSynced) strftime(buf, sizeof(buf), "%H:%M", timeinfo);
+  else snprintf(buf, sizeof(buf), "--:--");
+  return String(buf);
+}
+
+void drawSignalBarsRaw(int x, int y, int rssi, bool online, int bars, uint16_t barColor) {
+  tft.fillRect(x - 2, y, 22, 14, THEME_NAVY);
+  tft.drawRect(x - 2, y, 22, 14, THEME_DARKBOX);
+
+  int heights[4] = {4, 7, 10, 13};
+  for (int i = 0; i < 4; i++) {
+    int bx = x + (i * 5);
+    int bh = heights[i];
+    int by = y + (13 - bh);
+    tft.fillRect(bx, by, 3, bh, (i < bars) ? barColor : THEME_DARKBOX);
+  }
+  if (!online) {
+    tft.drawLine(x - 2, y, x + 18, y + 13, COLOR_RED);
+    tft.drawLine(x - 2, y + 13, x + 18, y, COLOR_RED);
+  }
+}
+
+int rssiToBars(int rssi, bool online, uint16_t &barColor) {
+  barColor = COLOR_GREEN;
+  if (!online) return 0;
+  if (rssi >= -65) { barColor = COLOR_GREEN;  return 4; }
+  if (rssi >= -75) { barColor = THEME_CYAN;   return 3; }
+  if (rssi >= -85) { barColor = COLOR_ORANGE; return 2; }
+  barColor = COLOR_RED;
+  return 1;
+}
+
+// เวอร์ชันมีแคช สำหรับแถบบนสุด (วาดใหม่เมื่อค่าเปลี่ยน)
+void drawSmartphoneSignalBars(int x, int y, int rssi, bool online) {
+  uint16_t barColor;
+  int bars = rssiToBars(rssi, online, barColor);
+  if (bars == lastDrawnBars && online == lastDrawnHostOnline) return;
+  lastDrawnBars = bars;
+  lastDrawnHostOnline = online;
+  drawSignalBarsRaw(x, y, rssi, online, bars, barColor);
+}
+
+void drawSmartphoneTopBar(bool forceRedraw = false) {
+  String curClock = getStationClockStr();
+
+  if (forceRedraw) {
+    tft.fillRect(0, 0, 172, 22, THEME_NAVY);
+    tft.drawFastHLine(0, 22, 172, THEME_CYAN);
+    tft.setTextColor(THEME_PINK, THEME_NAVY);
+    tft.setTextSize(1);
+    tft.setCursor(4, 7);
+    tft.printf("B%02d", currentStationId);
+
+    drawCenteredString(curClock, 7, 1, COLOR_WHITE, THEME_NAVY);
+    lastDrawnClock = curClock;
+    lastDrawnBars = -1;
+    drawSmartphoneSignalBars(146, 5, lastHostRssi, isHostOnline);
+    return;
+  }
+
+  if (curClock != lastDrawnClock) {
+    tft.fillRect(40, 5, 92, 15, THEME_NAVY);
+    drawCenteredString(curClock, 7, 1, COLOR_WHITE, THEME_NAVY);
+    lastDrawnClock = curClock;
+  }
+
+  drawSmartphoneSignalBars(146, 5, lastHostRssi, isHostOnline);
+}
+
+void drawChamberStatic() {
+  tft.fillRoundRect(112, 70, 52, 72, 5, THEME_DARKBOX);
+  tft.fillRect(136, 70, 4, 8, COLOR_WHITE);
+  tft.drawRoundRect(122, 78, 32, 58, 4, COLOR_WHITE);
+  tft.fillRoundRect(124, 122, 28, 12, 2, THEME_NAVY);
+}
+
+void drawPage1Framework() {
+  tft.fillScreen(THEME_BG);
+  drawSmartphoneTopBar(true);
+
+  tft.fillRoundRect(6, 26, 160, 36, 6, THEME_PINK);
+  drawCenteredString("BED " + String(currentStationId < 10 ? "0" : "") + String(currentStationId), 34, 2, COLOR_WHITE, THEME_PINK);
+
+  tft.fillRoundRect(110, 68, 56, 76, 6, THEME_DARKBOX);
+  tft.drawRoundRect(110, 68, 56, 76, 6, THEME_CYAN);
+  drawChamberStatic();
+
+  tft.fillRoundRect(6, 68, 98, 76, 6, THEME_DARKBOX);
+  tft.drawRoundRect(6, 68, 98, 76, 6, THEME_SKYBLUE);
+  tft.setTextColor(THEME_SKYBLUE, THEME_DARKBOX);
+  tft.setTextSize(1);
+  tft.setCursor(12, 74);
+  tft.print("FLOW RATE");
+
+  tft.fillRoundRect(6, 150, 160, 138, 8, THEME_NAVY);
+  tft.drawRoundRect(6, 150, 160, 138, 8, THEME_PINK);
+  drawCenteredString("INFUSED VOLUME", 158, 1, THEME_PINK, THEME_NAVY);
+
+  tft.fillRect(0, 296, 172, 24, THEME_BG);
+  drawCenteredString("[1]Monitor  2:Time  3:Link", 302, 1, THEME_SKYBLUE, THEME_BG);
+
+  lastDrawnRate = -999;
+  lastDrawnTarget = -999;
+  lastDrawnVol = -999;
+  lastDrawnPlan = -999;
+  lastDrawnEtaKey = "";
+  lastDrawnDrops = 0xFFFFFFFF;
+  animMode = -1;
+  poolFlashUntil = 0;
+  stateNeedsRedraw = false;
+}
+
+// วาดเฉพาะเมื่อสถานะเปลี่ยน / ขณะหยดกำลังตก (จำกัด ~60 fps) เพื่อไม่ให้ SPI แย่งเวลาการอ่านเซนเซอร์
+void updateDripAnimation() {
+  if (currentState != STATE_NORMAL_VIEW || currentNursePage != 1 || isHoldUiActive) return;
+
+  unsigned long now = millis();
+  int mode;   // 0 = รอหยด, 1 = หยดกำลังตก, 2 = พักการนับ, 3 = ไม่มีการไหล
+  if (!isRunning) mode = 2;
+  else if (isDropFalling) mode = 1;
+  else if (isLocalOcclusion(now)) mode = 3;
+  else mode = 0;
+
+  if (mode != animMode) {
+    bool fallToIdle = (animMode == 1 && mode == 0);
+    bool idleToFall = (animMode == 0 && mode == 1);
+    if (fallToIdle) {
+      tft.fillCircle(138, animDropPrevY, 2, THEME_DARKBOX);
+      tft.fillRoundRect(124, 122, 28, 12, 2, THEME_CYAN);   // กระเพื่อมที่ผิวน้ำ
+      poolFlashUntil = now + 120;
+      tft.fillCircle(138, CHAMBER_NOZZLE_Y, 2, THEME_CYAN);
+    } else if (!idleToFall) {
+      drawChamberStatic();
+      if (mode == 2 || mode == 3) {
+        tft.setTextColor(COLOR_YELLOW, THEME_DARKBOX);
+        tft.setTextSize(2);
+        tft.setCursor(mode == 2 ? 128 : 134, 96);
+        tft.print(mode == 2 ? "||" : "!");
+      } else if (mode == 0) {
+        tft.fillCircle(138, CHAMBER_NOZZLE_Y, 2, THEME_CYAN);
+      }
+    }
+    animDropPrevY = CHAMBER_NOZZLE_Y;
+    animMode = mode;
+  }
+
+  if (mode == 1) {
+    static unsigned long lastFrame = 0;
+    if (now - lastFrame < 16) return;
+    lastFrame = now;
+    unsigned long elapsed = now - dropFallStartTime;
+    if (elapsed <= DROP_FALL_DURATION) {
+      animDropY = CHAMBER_NOZZLE_Y + (int)((float)elapsed / (float)DROP_FALL_DURATION * (CHAMBER_POOL_Y - CHAMBER_NOZZLE_Y));
+      if (animDropY != animDropPrevY) {
+        tft.fillCircle(138, animDropPrevY, 2, THEME_DARKBOX);
+        tft.fillCircle(138, animDropY, 2, THEME_CYAN);
+        animDropPrevY = animDropY;
+      }
+    } else {
+      isDropFalling = false;
+    }
+  } else if (mode == 0 && poolFlashUntil != 0 && now >= poolFlashUntil) {
+    tft.fillRoundRect(124, 122, 28, 12, 2, THEME_NAVY);
+    poolFlashUntil = 0;
+  }
+}
+
+void updatePage1Dynamic() {
+  drawSmartphoneTopBar(false);
+
+  int rateKey = isRunning ? (int)currentFlowRate_ml_hr : -1;
+  int targetKey = (int)targetRateHr;
+  int currentVolRounded  = (int)totalVolumeMl;
+  int currentPlanRounded = (int)totalPlanMl;
+
+  if (rateKey != lastDrawnRate || targetKey != lastDrawnTarget) {
+    lastDrawnRate = rateKey;
+    lastDrawnTarget = targetKey;
+    tft.fillRect(10, 92, 90, 32, THEME_DARKBOX);
+    tft.setTextColor(COLOR_WHITE, THEME_DARKBOX);
+    tft.setTextSize(3);
+    tft.setCursor(14, 94);
+    if (!isRunning) {
+      tft.setTextSize(2);
+      tft.setTextColor(COLOR_YELLOW, THEME_DARKBOX);
+      tft.print("HOLD");
+    } else {
+      tft.printf("%3d", (int)currentFlowRate_ml_hr);
+    }
+    tft.setTextSize(1);
+    tft.setTextColor(THEME_PINK, THEME_DARKBOX);
+    tft.setCursor(68, 106);
+    tft.print("mL/h");
+
+    tft.fillRect(10, 126, 90, 14, THEME_DARKBOX);
+    tft.setTextColor(COLOR_WHITE, THEME_DARKBOX);
+    tft.setTextSize(1);
+    tft.setCursor(12, 128);
+    if (targetRateHr > 0) tft.printf("Set: %.0f mL/h", targetRateHr);
+    else tft.print("Set: -- (Host)");
+  }
+
+  // คำนวณ ETA
+  float remainingMl = totalPlanMl - totalVolumeMl;
+  if (remainingMl < 0) remainingMl = 0;
+  float calcRate = (currentFlowRate_ml_hr > 5.0f) ? currentFlowRate_ml_hr : targetRateHr;
+  bool etaValid = (totalPlanMl > 0 && calcRate > 0);
+  int remainingMins = etaValid ? (int)((remainingMl / calcRate) * 60.0f) : 0;
+
+  char finishClock[8];
+  if (isClockSynced && etaValid) {
+    time_t now;
+    time(&now);
+    time_t finishTime = now + (remainingMins * 60);
+    struct tm *finishTm = localtime(&finishTime);
+    strftime(finishClock, sizeof(finishClock), "%H:%M", finishTm);
+  } else {
+    snprintf(finishClock, sizeof(finishClock), "--:--");
+  }
+  String etaKey = String(remainingMins) + finishClock;
+
+  if (currentVolRounded != lastDrawnVol || currentPlanRounded != lastDrawnPlan || etaKey != lastDrawnEtaKey) {
+    if (currentVolRounded != lastDrawnVol) {
+      char volBuf[16];
+      snprintf(volBuf, sizeof(volBuf), "%4d", currentVolRounded);
+      drawCenteredString(String(volBuf), 174, 3, COLOR_WHITE, THEME_NAVY);
+    }
+    lastDrawnVol = currentVolRounded;
+    lastDrawnPlan = currentPlanRounded;
+    lastDrawnEtaKey = etaKey;
+
+    String planStr = (totalPlanMl > 0)
+        ? "Plan: " + String(currentPlanRounded) + " mL (Left " + String((int)remainingMl) + ")"
+        : String("Plan: -- (set at Host)");
+    drawCenteredString(padCenter(planStr, 24), 210, 1, THEME_SKYBLUE, THEME_NAVY);
+
+    int barW = 140;
+    int fillW = (totalPlanMl > 0) ? (int)((totalVolumeMl / totalPlanMl) * barW) : 0;
+    if (fillW > barW) fillW = barW;
+    tft.drawRect(16, 226, barW, 6, ST77XX_LIGHTGREY);
+    tft.fillRect(17, 227, barW - 2, 4, THEME_NAVY);
+    if (fillW > 2) tft.fillRect(17, 227, fillW - 2, 4, THEME_CYAN);
+
+    char etaBuf[32];
+    if (etaValid) snprintf(etaBuf, sizeof(etaBuf), "ETA: %02dh %02dm (End %s)", remainingMins / 60, remainingMins % 60, finishClock);
+    else snprintf(etaBuf, sizeof(etaBuf), "ETA: --");
+    drawCenteredString(padCenter(String(etaBuf), 24), 242, 1, COLOR_YELLOW, THEME_NAVY);
+  }
+
+  if (totalDrops != lastDrawnDrops) {
+    lastDrawnDrops = totalDrops;
+    drawCenteredString(padCenter("Total Drops: " + String(totalDrops) + "  DF" + String(dropFactor), 24), 262, 1, COLOR_WHITE, THEME_NAVY);
+  }
+}
+
+void drawPage2Framework() {
+  tft.fillScreen(THEME_BG);
+  drawSmartphoneTopBar(true);
+  tft.fillRoundRect(6, 26, 160, 264, 8, THEME_NAVY);
+  tft.drawRoundRect(6, 26, 160, 264, 8, THEME_PINK);
+  drawCenteredString("NURSE SCHEDULE", 34, 1, THEME_PINK, THEME_NAVY);
+  tft.drawFastHLine(14, 48, 144, THEME_SKYBLUE);
+  tft.fillRect(0, 296, 172, 24, THEME_BG);
+  drawCenteredString("1:Monitor  [2]Time  3:Link", 302, 1, THEME_SKYBLUE, THEME_BG);
+  lastDrawnPage2Key = "";
+  stateNeedsRedraw = false;
+}
+
+void updatePage2Dynamic() {
+  drawSmartphoneTopBar(false);
+  float remainingMl = totalPlanMl - totalVolumeMl;
+  if (remainingMl < 0) remainingMl = 0;
+  int currentRemainingRounded = (int)remainingMl;
+  float calcRate = (currentFlowRate_ml_hr > 5.0f) ? currentFlowRate_ml_hr : targetRateHr;
+  bool etaValid = (totalPlanMl > 0 && calcRate > 0);
+  int remainingMins = etaValid ? (int)((remainingMl / calcRate) * 60.0f) : 0;
+
+  String key = String(currentRemainingRounded) + "|" + String((int)targetRateHr) + "|" +
+               String((int)totalPlanMl) + "|" + String(remainingMins) + "|" + getStationClockStr();
+  if (key == lastDrawnPage2Key) return;
+  lastDrawnPage2Key = key;
+
+  char finishClockBuf[10];
+  if (isClockSynced && etaValid) {
+    time_t now;
+    time(&now);
+    time_t finishTime = now + (remainingMins * 60);
+    struct tm *finishTm = localtime(&finishTime);
+    strftime(finishClockBuf, sizeof(finishClockBuf), "%H:%M:%S", finishTm);
+  } else {
+    snprintf(finishClockBuf, sizeof(finishClockBuf), "--:--:--");
+  }
+
+  const int W = 24;
+  drawCenteredString(padCenter(targetRateHr > 0 ? "TARGET: " + String((int)targetRateHr) + " mL/h" : String("TARGET: -- (Host)"), W), 58, 1, COLOR_WHITE, THEME_NAVY);
+  drawCenteredString(padCenter(totalPlanMl > 0 ? "TOTAL PLAN: " + String((int)totalPlanMl) + " mL" : String("TOTAL PLAN: --"), W), 76, 1, THEME_SKYBLUE, THEME_NAVY);
+  drawCenteredString(padCenter("INFUSED: " + String((int)totalVolumeMl) + " mL", W), 94, 1, COLOR_WHITE, THEME_NAVY);
+  drawCenteredString(padCenter(totalPlanMl > 0 ? "REMAINING: " + String(currentRemainingRounded) + " mL" : String("REMAINING: --"), W), 112, 1, THEME_PINK, THEME_NAVY);
+  tft.drawFastHLine(14, 130, 144, ST77XX_LIGHTGREY);
+  drawCenteredString("TIME REMAINING (ETA):", 140, 1, COLOR_YELLOW, THEME_NAVY);
+  char etaBig[16];
+  if (etaValid) snprintf(etaBig, sizeof(etaBig), "%02dh %02dm", remainingMins / 60, remainingMins % 60);
+  else snprintf(etaBig, sizeof(etaBig), "--h --m");
+  drawCenteredString(padCenter(String(etaBig), 8), 156, 3, COLOR_GREEN, THEME_NAVY);
+  tft.drawFastHLine(14, 192, 144, ST77XX_LIGHTGREY);
+  drawCenteredString("ESTIMATED END TIME:", 202, 1, COLOR_YELLOW, THEME_NAVY);
+  drawCenteredString(String(finishClockBuf), 220, 2, THEME_CYAN, THEME_NAVY);
+  drawCenteredString(padCenter("Clock: " + getStationClockStr(), W), 254, 1, COLOR_WHITE, THEME_NAVY);
+}
+
+void drawPage3Framework() {
+  tft.fillScreen(THEME_BG);
+  drawSmartphoneTopBar(true);
+  tft.fillRoundRect(6, 26, 160, 264, 8, THEME_DARKBOX);
+  tft.drawRoundRect(6, 26, 160, 264, 8, THEME_CYAN);
+  drawCenteredString("HOST LINK STATUS", 34, 1, THEME_SKYBLUE, THEME_DARKBOX);
+  tft.drawFastHLine(14, 48, 144, THEME_SKYBLUE);
+  tft.fillRect(0, 296, 172, 24, THEME_BG);
+  drawCenteredString("1:Monitor  2:Time  [3]Link", 302, 1, THEME_SKYBLUE, THEME_BG);
+  lastDrawnPage3Rssi = -999;
+  lastDrawnPage3Online = -1;
+  stateNeedsRedraw = false;
+}
+
+void updatePage3Dynamic() {
+  drawSmartphoneTopBar(false);
+  if (lastHostRssi != lastDrawnPage3Rssi || (int)isHostOnline != lastDrawnPage3Online) {
+    lastDrawnPage3Rssi = lastHostRssi;
+    lastDrawnPage3Online = (int)isHostOnline;
+
+    tft.fillRoundRect(16, 56, 140, 58, 6, THEME_NAVY);
+    tft.drawRoundRect(16, 56, 140, 58, 6, isHostOnline ? COLOR_GREEN : COLOR_RED);
+    uint16_t barColor;
+    int bars = rssiToBars(lastHostRssi, isHostOnline, barColor);
+    drawSignalBarsRaw(30, 74, lastHostRssi, isHostOnline, bars, barColor);
+    tft.setTextSize(2);
+    tft.setTextColor(isHostOnline ? COLOR_GREEN : COLOR_RED, THEME_NAVY);
+    tft.setCursor(60, 72);
+    if (isHostOnline) tft.printf("%d dBm", lastHostRssi);
+    else tft.print("NO LINK");
+  }
+
+  const int W = 24;
+  String linkStr;
+  if (isHostOnline) linkStr = "HOST: ONLINE (CH " + String(espnowChannel) + ")";
+  else if (channelScanning) linkStr = "SEARCHING HOST CH " + String(espnowChannel);
+  else linkStr = "HOST: DISCONNECTED";
+  drawCenteredString(padCenter(linkStr, W), 124, 1, isHostOnline ? COLOR_GREEN : COLOR_RED, THEME_DARKBOX);
+  drawCenteredString(padCenter("Station Bed: B" + String(currentStationId < 10 ? "0" : "") + String(currentStationId), W), 142, 1, COLOR_WHITE, THEME_DARKBOX);
+  drawCenteredString(padCenter("Sync State: " + String(isClockSynced ? "NTP SYNCED" : "UNSYNCED"), W), 158, 1, THEME_SKYBLUE, THEME_DARKBOX);
+  drawCenteredString(padCenter("Drop Factor: " + String(dropFactor) + " gtt/mL", W), 174, 1, COLOR_WHITE, THEME_DARKBOX);
+  drawCenteredString(padCenter("Threshold: " + String(dropThreshold) + (dropLowersAdc ? " (LOW)" : " (HIGH)"), W), 190, 1, COLOR_YELLOW, THEME_DARKBOX);
+  drawCenteredString(padCenter("Sensor AO: " + String(analogRead(SENSOR_AO_PIN)), W), 206, 1, COLOR_WHITE, THEME_DARKBOX);
+  drawCenteredString(padCenter("Liquid Ref: " + String(valLiquid), W), 222, 1, THEME_PINK, THEME_DARKBOX);
+  drawCenteredString(padCenter("Air Ref: " + String(valAir), W), 238, 1, THEME_SKYBLUE, THEME_DARKBOX);
+  drawCenteredString(padCenter("Total Drops: " + String(totalDrops), W), 254, 1, COLOR_WHITE, THEME_DARKBOX);
+  drawCenteredString(padCenter("FW v" APP_VERSION " / Proto v2", W), 270, 1, ST77XX_LIGHTGREY, THEME_DARKBOX);
+}
+
+void drawEmergencyRateValues() {
+  char rBuf[16];
+  snprintf(rBuf, sizeof(rBuf), "%.1f mL/h", currentFlowRate_ml_hr);
+  drawCenteredString(padCenter(String(rBuf), 11), 154, 2, COLOR_WHITE, THEME_NAVY);
+  char tBuf[16];
+  if (targetRateHr > 0) snprintf(tBuf, sizeof(tBuf), "%.1f mL/h", targetRateHr);
+  else snprintf(tBuf, sizeof(tBuf), "--");
+  drawCenteredString(padCenter(String(tBuf), 11), 200, 2, COLOR_YELLOW, THEME_NAVY);
+}
+
+void drawEmergencyScreen() {
+  uint8_t alert = getEffectiveAlert(millis());
+  lastEmergencyAlert = alert;
+
+  tft.fillScreen(COLOR_RED);
+  tft.drawRoundRect(4, 4, 164, 312, 8, COLOR_WHITE);
+  tft.drawRoundRect(6, 6, 160, 308, 6, COLOR_YELLOW);
+  tft.fillRoundRect(12, 16, 148, 40, 6, COLOR_WHITE);
+  drawCenteredString("EMERGENCY!", 26, 2, COLOR_RED, COLOR_WHITE);
+
+  String alertHeadline = "CRITICAL ALERT";
+  String alertSub = "CHECK IV SYSTEM";
+  if (alert == ALERT_OCCLUSION) {
+    alertHeadline = "OCCLUSION"; alertSub = "NO FLUID FLOW";
+  } else if (alert == ALERT_TOO_FAST) {
+    alertHeadline = "TOO FAST"; alertSub = "EXCEEDS TARGET RATE";
+  } else if (alert == ALERT_TOO_SLOW) {
+    alertHeadline = "TOO SLOW"; alertSub = "BELOW TARGET RATE";
+  } else if (alert == ALERT_BAG_EMPTY) {
+    alertHeadline = "BAG EMPTY"; alertSub = "INFUSION FINISHED";
+  }
+
+  drawCenteredString("! " + alertHeadline + " !", 74, 2, COLOR_YELLOW, COLOR_RED);
+  drawCenteredString(alertSub, 102, 1, COLOR_WHITE, COLOR_RED);
+
+  tft.fillRoundRect(12, 126, 148, 110, 6, THEME_NAVY);
+  tft.drawRoundRect(12, 126, 148, 110, 6, COLOR_WHITE);
+  drawCenteredString("ACTUAL RATE:", 136, 1, THEME_PINK, THEME_NAVY);
+  drawCenteredString("TARGET SET:", 184, 1, THEME_SKYBLUE, THEME_NAVY);
+  drawEmergencyRateValues();
+
+  tft.fillRoundRect(14, 256, 144, 44, 6, COLOR_WHITE);
+  drawCenteredString("PRESS BUTTON", 264, 1, COLOR_RED, COLOR_WHITE);
+  drawCenteredString("TO SNOOZE (2 MIN)", 280, 1, COLOR_RED, COLOR_WHITE);
+  stateNeedsRedraw = false;
+}
+
+void drawScreensaverFramework() {
+  tft.fillScreen(THEME_BG);
+  tft.drawRoundRect(2, 2, 168, 316, 8, THEME_SKYBLUE);
+  tft.drawRoundRect(4, 4, 164, 312, 6, THEME_PINK);
+  tft.fillRoundRect(16, 10, 140, 32, 6, THEME_PINK);
+  tft.drawRoundRect(16, 10, 140, 32, 6, THEME_SKYBLUE);
+  drawCenteredString("BED " + String(currentStationId < 10 ? "0" : "") + String(currentStationId), 18, 2, COLOR_WHITE, THEME_PINK);
+  tft.fillRoundRect(50, 120, 72, 110, 6, THEME_DARKBOX);
+  tft.drawRoundRect(50, 120, 72, 110, 6, THEME_CYAN);
+  tft.fillRect(84, 122, 4, 10, COLOR_WHITE);
+  tft.fillRoundRect(54, 206, 64, 20, 4, THEME_NAVY);
+  drawCenteredString("ACTUAL FLOW RATE", 240, 1, THEME_SKYBLUE, THEME_BG);
+  drawCenteredString("[CLICK TO WAKE]", 300, 1, THEME_PINK, THEME_BG);
+  lastDrawnRate = -999;
+  lastDrawnClock = "";
+  lastScreensaverHost = "";
+  stateNeedsRedraw = false;
+}
+
+void updateScreensaverDynamic() {
+  String curClock = getStationClockStr();
+  if (curClock != lastDrawnClock) {
+    lastDrawnClock = curClock;
+    drawCenteredString(curClock, 52, 4, THEME_SKYBLUE, THEME_BG);
+  }
+
+  String hostStr = isHostOnline ? "HOST LINKED (CH " + String(espnowChannel) + ")" : String("HOST OFFLINE");
+  if (hostStr != lastScreensaverHost) {
+    lastScreensaverHost = hostStr;
+    drawCenteredString(padCenter(hostStr, 22), 96, 1, isHostOnline ? COLOR_GREEN : COLOR_RED, THEME_BG);
+  }
+
+  int rateKey = isRunning ? (int)currentFlowRate_ml_hr : -1;
+  if (rateKey != lastDrawnRate) {
+    lastDrawnRate = rateKey;
+    tft.fillRect(8, 255, 156, 38, THEME_BG);
+    if (!isRunning) {
+      drawCenteredString("HOLD", 260, 3, COLOR_YELLOW, THEME_BG);
+    } else {
+      char rateBuf[16];
+      snprintf(rateBuf, sizeof(rateBuf), "%3d mL/h", rateKey);
+      drawCenteredString(String(rateBuf), 258, 3, COLOR_WHITE, THEME_BG);
+    }
+  }
+}
+
+void drawDeveloperCreditScreen() {
+  tft.fillScreen(THEME_MAROON);
+  tft.drawRoundRect(4, 4, 164, 312, 8, COLOR_WHITE);
+  tft.drawRoundRect(6, 6, 160, 308, 6, COLOR_ORANGE);
+  tft.fillRoundRect(12, 16, 148, 36, 6, 0x3800);
+  drawCenteredString("DEVELOPER", 26, 2, COLOR_YELLOW, 0x3800);
+  drawCenteredString("SOFTWARE & SYSTEM:", 75, 1, COLOR_WHITE, THEME_MAROON);
+  drawCenteredString("Kittiphan", 98, 2, COLOR_YELLOW, THEME_MAROON);
+  drawCenteredString("Rattanakorn", 118, 2, COLOR_YELLOW, THEME_MAROON);
+  drawCenteredString("Computer Officer", 146, 1, COLOR_WHITE, THEME_MAROON);
+  drawCenteredString("MCU Phrae Campus", 168, 1, THEME_SKYBLUE, THEME_MAROON);
+  tft.drawFastHLine(16, 192, 140, COLOR_ORANGE);
+  drawCenteredString("Project: Smart IV Alert", 206, 1, COLOR_WHITE, THEME_MAROON);
+  drawCenteredString("Hospital Trial v" + String(APP_VERSION), 222, 1, COLOR_WHITE, THEME_MAROON);
+  drawCenteredString("Hardware: ESP32-S3 TFT", 238, 1, THEME_SKYBLUE, THEME_MAROON);
+  tft.fillRoundRect(14, 270, 144, 30, 4, 0x3800);
+  drawCenteredString("[CLICK TO RETURN]", 280, 1, COLOR_WHITE, 0x3800);
+  stateNeedsRedraw = false;
+}
+
+void drawStationIdConfigFramework() {
+  tft.fillScreen(THEME_BG);
+  tft.fillRect(0, 0, 172, 32, THEME_PINK);
+  drawCenteredString("SET BED ID", 8, 2, COLOR_WHITE, THEME_PINK);
+  tft.fillRoundRect(10, 50, 152, 140, 8, THEME_DARKBOX);
+  tft.drawRoundRect(10, 50, 152, 140, 8, THEME_SKYBLUE);
+  drawCenteredString("CLICK TO CHANGE (1-8)", 62, 1, THEME_SKYBLUE, THEME_DARKBOX);
+  drawCenteredString("WAIT 4s TO AUTO SAVE", 76, 1, THEME_SKYBLUE, THEME_DARKBOX);
+  tft.fillRoundRect(12, 210, 148, 60, 6, THEME_NAVY);
+  drawCenteredString("AUTO SAVING TO FLASH", 224, 1, COLOR_YELLOW, THEME_NAVY);
+  stateNeedsRedraw = false;
+}
+
+void updateStationIdConfigDynamic() {
+  tft.fillRect(30, 96, 112, 70, THEME_DARKBOX);
+  drawCenteredString(String(tempConfigStationId), 104, 6, THEME_PINK, THEME_DARKBOX);
+  int leftSec = (int)((configAutoSaveTimeout - millis()) / 1000) + 1;
+  if (leftSec < 0) leftSec = 0;
+  tft.fillRect(20, 244, 132, 16, THEME_NAVY);
+  drawCenteredString("Saving in " + String(leftSec) + " sec...", 246, 1, THEME_SKYBLUE, THEME_NAVY);
+}
+
+void handleButton() {
+  static unsigned long btnPressStart = 0;
+  static bool isHolding = false;
+  static int clickCount = 0;
+  static unsigned long lastReleaseTime = 0;
+
+  bool reading = (digitalRead(BTN_PIN) == LOW);
+  unsigned long now = millis();
+
+  if (reading && !isHolding) {
+    btnPressStart = now;
+    isHolding = true;
+    isHoldUiActive = false;
+    holdBeep3sDone = false;
+    holdBeep5sDone = false;
+    lastUserActivityTime = now;
+  }
+  else if (reading && isHolding) {
+    unsigned long holdDur = now - btnPressStart;
+    if (holdDur >= 400 && currentState != STATE_CONFIG_ID) {
+      isHoldUiActive = true;
+      if (holdDur >= 3000 && !holdBeep3sDone) {
+        beepNonBlocking(2200, 50);
+        holdBeep3sDone = true;
+      }
+      if (holdDur >= 5000 && !holdBeep5sDone) {
+        beepNonBlocking(2600, 80);
+        holdBeep5sDone = true;
+      }
+      if (now - lastHoldRenderTime >= 35) {
+        lastHoldRenderTime = now;
+        drawHoldProgressHUD(holdDur);
+      }
+    }
+  }
+  else if (!reading && isHolding) {
+    unsigned long pressDur = now - btnPressStart;
+    isHolding = false;
+    lastUserActivityTime = now;
+
+    if (isHoldUiActive) {
+      isHoldUiActive = false;
+      if (pressDur >= 5000) {
+        soundScreensaver();
+        currentState = STATE_CREDIT;
+        stateNeedsRedraw = true;
+        clickCount = 0;
+        return;
+      }
+      else if (pressDur >= 3000) {
+        executeButtonCalibrationWizard();
+        if (currentState == STATE_SCREENSAVER) currentState = STATE_NORMAL_VIEW;
+        clickCount = 0;
+        return;
+      }
+      else {
+        soundClick();
+        stateNeedsRedraw = true;
+        clickCount = 0;
+        return;
+      }
+    }
+    else if (pressDur > 30 && pressDur < 400) {
+      clickCount++;
+      lastReleaseTime = now;
+    }
+  }
+
+  if (clickCount > 0 && !isHolding && (now - lastReleaseTime > 280)) {
+    if (currentState == STATE_CONFIG_ID) {
+      soundClick();
+      tempConfigStationId = (tempConfigStationId % 8) + 1;
+      configAutoSaveTimeout = now + 4000;
+      clickCount = 0;
+      return;
+    }
+
+    if (currentState == STATE_EMERGENCY) {
+      snoozeUntilTime = now + SNOOZE_DURATION_MS;
+      noTone(BUZZER_PIN);
+      buzzerBeepUntil = 0;
+      soundClick();
+      currentState = STATE_NORMAL_VIEW;
+      stateNeedsRedraw = true;
+      clickCount = 0;
+      return;
+    }
+
+    if (currentState == STATE_CREDIT || currentState == STATE_SCREENSAVER) {
+      // คลิกกี่ครั้งก็ได้ = กลับหน้าหลัก (ไม่เปลี่ยนสถานะการนับโดยไม่ตั้งใจ)
+      soundClick();
+      currentState = STATE_NORMAL_VIEW;
+      stateNeedsRedraw = true;
+      clickCount = 0;
+      return;
+    }
+
+    if (clickCount >= 3) {
+      soundClick();
+      noTone(BUZZER_PIN);
+      setLedColor(50, 0, 50);
+      lastLedColorCode = -1;
+      tempConfigStationId = currentStationId;
+      configAutoSaveTimeout = now + 4000;
+      currentState = STATE_CONFIG_ID;
+      stateNeedsRedraw = true;
+    }
+    else if (clickCount == 2) {
+      isRunning = !isRunning;
+      currentFlowRate_ml_hr = 0.0f;
+      dropState = false;
+      if (isRunning) {
+        // เริ่มนับต่อ: ไม่ใช้ช่วงเวลาที่พักไว้คำนวณอัตรา และเริ่มจับเวลาหยุดไหลใหม่
+        rateAnchorValid = false;
+        lastDropTimestamp = now;
+        soundStart();
+      } else {
+        soundStop();
+      }
+      stateNeedsRedraw = true;
+    }
+    else if (clickCount == 1) {
+      currentNursePage = (currentNursePage % 3) + 1;
+      stateNeedsRedraw = true;
+      soundClick();
+    }
+    clickCount = 0;
+  }
+}
+
+void updateStatusLed(unsigned long now) {
+  int code;
+  if (currentState == STATE_CONFIG_ID) return;
+  if (currentState == STATE_EMERGENCY) code = 1;
+  else if (getEffectiveAlert(now) != ALERT_NONE) code = 2;   // มีเหตุแต่พักเสียงอยู่
+  else if (!isRunning) code = 3;
+  else if (!isHostOnline) code = 4;
+  else code = 5;
+  if (code == lastLedColorCode) return;
+  lastLedColorCode = code;
+  switch (code) {
+    case 1: setLedColor(90, 0, 0);  break;   // แดง: ฉุกเฉิน
+    case 2: setLedColor(60, 20, 0); break;   // ส้ม: พักเสียงเตือน
+    case 3: setLedColor(50, 40, 0); break;   // เหลือง: พักการนับ
+    case 4: setLedColor(0, 0, 60);  break;   // น้ำเงิน: ไม่พบ Host
+    default: setLedColor(0, 40, 0); break;   // เขียว: ปกติ
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // กำหนดเขตเวลา ICT UTC+7 ประเทศไทยถาวร
+  setenv("TZ", "ICT-7", 1);
+  tzset();
+
+  pinMode(BUZZER_PIN, OUTPUT); noTone(BUZZER_PIN);
+  pinMode(TFT_BLK, OUTPUT); digitalWrite(TFT_BLK, HIGH);
+  pinMode(BTN_PIN, INPUT_PULLUP);
+  pinMode(SENSOR_AO_PIN, INPUT);
+
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+
+  SPI_TFT.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
+  tft.init(172, 320);
+  tft.setSPISpeed(40000000);
+  tft.setRotation(0);
+  tft.setTextWrap(false);
+
+  stationPrefs.begin("st_cfg", false);
+  currentStationId = stationPrefs.getUChar("id", 1);
+  espnowChannel    = stationPrefs.getUChar("ch", DEFAULT_ESPNOW_CHANNEL);
+  stationPrefs.end();
+  if (currentStationId < 1 || currentStationId > 8) currentStationId = 1;
+  if (espnowChannel < 1 || espnowChannel > 13) espnowChannel = DEFAULT_ESPNOW_CHANNEL;
+
+  stationPrefs.begin("st_cal", true);
+  valLiquid     = stationPrefs.getInt("v_liq", 1200);
+  valAir        = stationPrefs.getInt("v_air", 2800);
+  dropThreshold = stationPrefs.getInt("th", 2000);
+  hysteresis    = stationPrefs.getInt("hys", 200);
+  stationPrefs.end();
+  dropLowersAdc = (valLiquid < valAir);
+
+  setLedColor(0, 40, 80);
+  tft.fillScreen(THEME_BG);
+  tft.drawRoundRect(4, 4, 164, 312, 8, THEME_SKYBLUE);
+  tft.drawRoundRect(6, 6, 160, 308, 6, THEME_PINK);
+
+  drawCenteredString("SMART IV", 35, 3, THEME_SKYBLUE, THEME_BG);
+  drawCenteredString("ALERT OS", 65, 2, THEME_PINK, THEME_BG);
+
+  tft.fillRoundRect(16, 120, 140, 50, 6, THEME_PINK);
+  drawCenteredString("BED " + String(currentStationId < 10 ? "0" : "") + String(currentStationId), 134, 3, COLOR_WHITE, THEME_PINK);
+
+  drawCenteredString("Clinical Trial Node", 200, 1, COLOR_WHITE, THEME_BG);
+  drawCenteredString("BCN Phrae Innovation", 220, 1, THEME_CYAN, THEME_BG);
+  drawCenteredString("Firmware v" + String(APP_VERSION), 240, 1, THEME_SKYBLUE, THEME_BG);
+
+  playWelcomeMelody();
+  delay(600);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  WiFi.setSleep(false);
+  esp_wifi_set_channel(espnowChannel, WIFI_SECOND_CHAN_NONE);
+
+  if (esp_now_init() == ESP_OK) {
+    esp_now_register_recv_cb(esp_now_recv_cb_t(OnTimeSyncRecv));
+
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+    peerInfo.channel = 0;          // 0 = ช่องปัจจุบัน (รองรับการเปลี่ยนช่องขณะค้นหา Host)
+    peerInfo.ifidx = WIFI_IF_STA;
+    peerInfo.encrypt = false;
+    esp_now_add_peer(&peerInfo);
+  } else {
+    drawCenteredString("ESP-NOW INIT FAILED", 270, 1, COLOR_RED, THEME_BG);
+    delay(2000);
+  }
+
+  unsigned long now = millis();
+  hostOfflineSince = now;
+  lastChannelHopTime = now;
+  lastUserActivityTime = now;
+
+  currentState = STATE_NORMAL_VIEW;
+  currentNursePage = 1;
+  stateNeedsRedraw = true;
+}
+
+void loop() {
+  checkAnalogDrop();
+  handleButton();
+  handlePassiveBuzzerEngine();
+
+  unsigned long currentMillis = millis();
+  processHostLink(currentMillis);
+
+  if (currentState == STATE_CONFIG_ID) {
+    if (stateNeedsRedraw) drawStationIdConfigFramework();
+    static unsigned long lastConfigDraw = 0;
+    if (currentMillis - lastConfigDraw >= 250) {
+      lastConfigDraw = currentMillis;
+      updateStationIdConfigDynamic();
+    }
+
+    if (currentMillis >= configAutoSaveTimeout) {
+      if (tempConfigStationId != currentStationId) {
+        currentStationId = tempConfigStationId;
+        stationPrefs.begin("st_cfg", false);
+        stationPrefs.putUChar("id", currentStationId);
+        stationPrefs.end();
+        // เปลี่ยนเตียง: ล้างค่าที่ได้จาก Host ของเตียงเดิม รอค่าของเตียงใหม่
+        targetRateHr = 0; totalPlanMl = 0; currentAlertState = ALERT_NONE;
+        resetSeqKnown = false;
+      }
+      soundStart();
+      lastLedColorCode = -1;
+      lastUserActivityTime = currentMillis;
+      currentState = STATE_NORMAL_VIEW;
+      stateNeedsRedraw = true;
+    }
+  } else {
+    uint8_t effectiveAlert = getEffectiveAlert(currentMillis);
+    bool isEmergencyCondition = (effectiveAlert != ALERT_NONE);
+
+    if (isEmergencyCondition && currentMillis >= snoozeUntilTime) {
+      if (!isHoldUiActive) {
+        if (currentState != STATE_EMERGENCY || effectiveAlert != lastEmergencyAlert) {
+          currentState = STATE_EMERGENCY;
+          stateNeedsRedraw = true;
+        }
+      }
+    } else if (!isEmergencyCondition && currentState == STATE_EMERGENCY) {
+      currentState = STATE_NORMAL_VIEW;
+      stateNeedsRedraw = true;
+    }
+    if (!isEmergencyCondition) snoozeUntilTime = 0;
+
+    // Screensaver อัตโนมัติเมื่อไม่มีการใช้งาน
+    if (currentState == STATE_NORMAL_VIEW && !isHoldUiActive &&
+        currentMillis - lastUserActivityTime >= SCREENSAVER_IDLE_MS) {
+      currentState = STATE_SCREENSAVER;
+      stateNeedsRedraw = true;
+    }
+
+    if (!isHoldUiActive) {
+      if (currentState == STATE_EMERGENCY) {
+        if (stateNeedsRedraw) drawEmergencyScreen();
+      }
+      else if (currentState == STATE_NORMAL_VIEW) {
+        if (currentNursePage == 1) {
+          if (stateNeedsRedraw) { drawPage1Framework(); updatePage1Dynamic(); }
+          updateDripAnimation();
+        } else if (currentNursePage == 2) {
+          if (stateNeedsRedraw) { drawPage2Framework(); updatePage2Dynamic(); }
+        } else if (currentNursePage == 3) {
+          if (stateNeedsRedraw) { drawPage3Framework(); updatePage3Dynamic(); }
+        }
+      }
+      else if (currentState == STATE_SCREENSAVER) {
+        if (stateNeedsRedraw) { drawScreensaverFramework(); updateScreensaverDynamic(); }
+      }
+      else if (currentState == STATE_CREDIT) {
+        if (stateNeedsRedraw) drawDeveloperCreditScreen();
+      }
+    }
+
+    static unsigned long lastDynamicUpdate = 0;
+    if (currentMillis - lastDynamicUpdate >= 1000) {
+      lastDynamicUpdate = currentMillis;
+
+      if (!isHoldUiActive) {
+        if (currentState == STATE_NORMAL_VIEW) {
+          if (currentNursePage == 1) updatePage1Dynamic();
+          else if (currentNursePage == 2) updatePage2Dynamic();
+          else if (currentNursePage == 3) updatePage3Dynamic();
+        } else if (currentState == STATE_SCREENSAVER) {
+          updateScreensaverDynamic();
+        } else if (currentState == STATE_EMERGENCY) {
+          drawEmergencyRateValues();
+        }
+      }
+    }
+
+    updateStatusLed(currentMillis);
+  }
+
+  // ส่งสถานะให้ Host ทุก 1 วินาที (ส่งต่อแม้อยู่ในหน้าตั้งค่า เพื่อไม่ให้ Host เห็นเป็น Offline)
+  if (currentMillis - lastSendTime >= STATUS_SEND_INTERVAL_MS) {
+    unsigned long now = millis();
+    myData.protocolVersion = PROTOCOL_VERSION;
+    myData.stationId       = currentStationId;
+    myData.isRunning       = isRunning ? 1 : 0;
+    myData.totalDrops      = totalDrops;
+    myData.periodDrops     = periodDropsCounter;
+    myData.flowRateHr      = isRunning ? currentFlowRate_ml_hr : 0.0f;
+    myData.msSinceLastDrop = hasFirstDropOccurred ? (uint32_t)(now - lastDropTimestamp) : 0;
+    myData.batteryVolts    = readStationBattery();
+
+    if (esp_now_send(broadcastAddress, (uint8_t *)&myData, sizeof(myData)) == ESP_OK) {
+      periodDropsCounter = 0;
+    }
+    lastSendTime = currentMillis;
+  }
+}
