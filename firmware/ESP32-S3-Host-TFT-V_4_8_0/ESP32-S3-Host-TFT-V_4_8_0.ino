@@ -175,6 +175,10 @@ unsigned long lastTimeBackup = 0;
 
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
+// ---- สถานะของเตียงสำหรับการแสดงผล ----
+// ต้องประกาศไว้ตอนต้นไฟล์ เพราะ Arduino IDE แทรก prototype ของฟังก์ชันไว้ก่อนส่วนแสดงผล
+enum BedUiStatus { BU_NORMAL = 0, BU_FAST, BU_SLOW, BU_NOFLOW, BU_NEAREND, BU_DONE, BU_PAUSED, BU_OFFLINE };
+
 // ----------------------------------------------------------------------------
 // โครงสร้างข้อมูลรับ-ส่ง ESP-NOW (Protocol v2) — ต้องเหมือนกับ Station ทุกไบต์
 // ----------------------------------------------------------------------------
@@ -831,9 +835,6 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingDataBytes, int len) {
 #define C_ORANGE    0xFD20
 #define C_RED       0xF800
 #define C_SKY       0x5DFF
-
-// ---- สถานะของเตียงสำหรับการแสดงผล ----
-enum BedUiStatus { BU_NORMAL = 0, BU_FAST, BU_SLOW, BU_NOFLOW, BU_NEAREND, BU_DONE, BU_PAUSED, BU_OFFLINE };
 
 BedUiStatus bedUiStatus(int i) {
   if (!isStationOnline(i)) return BU_OFFLINE;

@@ -12,7 +12,14 @@
 #define INPUT 0
 #define OUTPUT 1
 #define INPUT_PULLUP 2
+#define INPUT_PULLDOWN 3
+#define RISING 1
+#define FALLING 2
+#define CHANGE 3
+#define IRAM_ATTR
 #define PROGMEM
+#define F(x) (x)
+#include <sys/time.h>
 typedef unsigned char byte;
 typedef int esp_err_t;
 typedef int portMUX_TYPE;
@@ -67,13 +74,18 @@ int analogRead(int);
 void analogReadResolution(int);
 void analogSetAttenuation(adc_attenuation_t);
 void tone(int,unsigned int,unsigned long d=0);
-void randomSeed(unsigned long);
-long random(long);
-long random(long,long);
-void rgbLedWrite(int,int,int,int);
-void neopixelWrite(int,int,int,int);
-
+bool ledcAttach(int,int,int);
+void ledcWrite(int,int);
+void ledcSetup(int,int,int);
+void ledcAttachPin(int,int);
 void noTone(int);
+// สตับของ interrupt: พรีวิวบน PC ไม่มีขาจริง จึงแค่เก็บ handler ไว้เฉย ๆ
+inline int digitalPinToInterrupt(int pin) { return pin; }
+inline void (*g_isrHandler)() = nullptr;
+inline void attachInterrupt(int, void (*fn)(), int) { g_isrHandler = fn; }
+inline void detachInterrupt(int) { g_isrHandler = nullptr; }
+inline void noInterrupts() {}
+inline void interrupts() {}
 long map(long,long,long,long,long);
 using std::min; using std::max;
 class SerialClass {

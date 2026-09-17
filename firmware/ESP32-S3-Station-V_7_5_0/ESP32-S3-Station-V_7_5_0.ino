@@ -145,6 +145,10 @@ enum AppState {
   STATE_NEAR_END_NOTICE
 };
 
+// ---- สถานะที่ใช้เลือกสีและคำบนจอ ----
+// ต้องประกาศไว้ตอนต้นไฟล์ เพราะ Arduino IDE แทรก prototype ของฟังก์ชันไว้ก่อนส่วนแสดงผล
+enum UiStatus { UI_OK = 0, UI_FAST, UI_SLOW, UI_NOFLOW, UI_NEAREND, UI_DONE, UI_PAUSED };
+
 AppState currentState       = STATE_NORMAL_VIEW;
 int currentNursePage        = 1;
 uint8_t currentStationId    = 1;
@@ -777,9 +781,6 @@ String getStationClockStr() {
 //   หน้า 4 TREND   : กราฟแท่งแนวโน้มอัตราไหลย้อนหลัง 30 นาที
 // ทุกหน้าวาดเฉพาะส่วนที่ค่าเปลี่ยน เพื่อไม่ให้ SPI แย่งเวลาการอ่านเซนเซอร์
 // ============================================================================
-
-// ---- สถานะที่ใช้เลือกสีและคำบนจอ ----
-enum UiStatus { UI_OK = 0, UI_FAST, UI_SLOW, UI_NOFLOW, UI_NEAREND, UI_DONE, UI_PAUSED };
 
 UiStatus uiStatusOf(uint8_t code) {
   if (!isRunning) return UI_PAUSED;
