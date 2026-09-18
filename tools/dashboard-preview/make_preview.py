@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""ดึงหน้าเว็บ Dashboard ออกจาก web_dashboard.h แล้วใส่ข้อมูลจำลอง เพื่อเปิดดูบน PC
+
+ใช้: python3 make_preview.py [โฟลเดอร์เฟิร์มแวร์] [ไฟล์ .html ปลายทาง]
+ได้ไฟล์ HTML ที่เปิดดูได้เลยโดยไม่ต้องมีบอร์ด — ใช้ตรวจหน้าตาและพฤติกรรมของ Dashboard
+"""
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+src = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "firmware/ESP32-S3-Host-OLED-V_4_7_2"
+out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).resolve().parent / "preview.html"
+
+text = (src / "web_dashboard.h").read_text(encoding="utf-8")
+m = re.search(r'PAGE_INDEX\[\]\s*PROGMEM\s*=\s*R"rawliteral\((.*?)\)rawliteral";', text, re.S)
+if not m:
+    print("ไม่พบ PAGE_INDEX ในไฟล์", file=sys.stderr)
+    sys.exit(1)
+html = m.group(1)
+
+# ---- ข้อมูลจำลอง: ครบทุกสถานะที่ต้องตรวจ ----
+MOCK = """
+<script>
+(function () {
+  const beds = [
+    { id:1, name:'สมชาย ใจดี',   alert:0, vol:180,  rate:98.4,  plan:1000 },
+    { id:2, name:'มาลี ศรีสุข',  alert:3, vol:820,  rate:96.0,  plan:1000 },
+    { id:3, name:'ประสิทธิ์ พูนผล', alert:2, vol:410, rate:48.0, plan:1000 },
+    { id:4, name:'จันทร์ เพ็ญศรี', alert:5, vol:640,  rate:0.0,   plan:1000 },
+    { id:5, name:'อนงค์ วงศ์ทอง', alert:6, vol:0,    rate:0.0,   plan:1000 }
+  ];
+  const stations = beds.map(b => ({
+    id:b.id, online:true, running:true, rssi:-62, battery:3.95,
+    totalDrops:Math.round(b.vol*20), volumeMl:b.vol, flowRateHr:b.rate,
+    msSinceLastDrop:1200, targetRate:100, planVolume:b.plan, dropFactor:20,
+    patientName:b.name, alertCode:b.alert, nearEndPct:80, nearEndAck:false,
+    caseActive:true, caseStart:'18/09/2569 08:30'
+  }));
+  const data = {
+    version:'4.7.2-OLED', activeCount:beds.length, currentTime:'18/09/2569 09:15:20',
+    timeSynced:true, timeApprox:false, apClients:2, apMaxClients:8, channel:1,
+    hostBatVolts:4.05, hostBatPct:92, snoozed:false, stations
+  };
+  const logs = { logs:[], dropFactor:20 };
+  window.fetch = function (url) {
+    let body = {};
+    if (String(url).includes('/api/data')) body = data;
+    else if (String(url).includes('/api/logs')) body = logs;
+    else if (String(url).includes('/api/ap/status'))
+      body = { ssid:'ESP32_Liquid_Monitor', password:'12345678', apIP:'192.168.4.1',
+               channel:1, clients:2, maxClients:8, currentTime:data.currentTime };
+    return Promise.resolve({ ok:true, json:() => Promise.resolve(body), text:() => Promise.resolve('') });
+  };
+  // ปิดเสียงในโหมดพรีวิว
+  window.AudioContext = window.webkitAudioContext = function () {
+    return { currentTime:0, state:'running', resume(){}, destination:{},
+             createOscillator(){ return { type:'', frequency:{ setValueAtTime(){} },
+                                          connect(){}, start(){}, stop(){} }; },
+             createGain(){ return { gain:{ setValueAtTime(){}, exponentialRampToValueAtTime(){} },
+                                    connect(){} }; } };
+  };
+})();
+</script>
+"""
+html = html.replace("<script>", MOCK + "<script>", 1)
+out.write_text(html, encoding="utf-8")
+print("เขียนแล้ว:", out, f"({len(html)} ตัวอักษร)")
