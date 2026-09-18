@@ -24,6 +24,7 @@
 | `tools/host-preview/` | เรนเดอร์ภาพหน้าจอ TFT ของเฟิร์มแวร์ Host v4.8.0-TFT บน PC |
 | `tools/protocol-test/` | **ตรวจว่าโครงสร้างแพ็กเก็ต ESP-NOW ของทุกเฟิร์มแวร์ตรงกัน** (Host กับ Station ต้องตรงกันทุกไบต์) |
 | `tools/oled-check/` | ตรวจว่าเฟิร์มแวร์ Host จอ OLED คอมไพล์ผ่านบน PC |
+| `tools/oled-preview/` | **จำลองหน้าจอ OLED 128x64 ของ Host v4.7.2 บน PC** เรนเดอร์ออกมาเป็นภาพทุกหน้า |
 | `tools/dashboard-preview/` | **เปิดหน้าเว็บ Dashboard บน PC พร้อมข้อมูลจำลอง** แล้วถ่ายภาพหน้าจอด้วย Chromium |
 | `tools/detector-test/` | **ทดสอบอัลกอริทึมตรวจจับหยดบน PC** 10 สถานการณ์ (ถุงแกว่ง ระดับไหล สัญญาณรบกวนแรง ฯลฯ) ไม่ต้องมีบอร์ด |
 | `tools/station-preview/` | เรนเดอร์ภาพทุกหน้าจอของเฟิร์มแวร์ Station v7.7.0 บน PC (มีเซนเซอร์จำลองในตัว) |
@@ -36,6 +37,7 @@
 | `docs/ui-concepts-host/` | ภาพเปรียบเทียบแบบร่าง UI ของ Host ทั้ง 3 แนวทาง |
 | `docs/screens-dashboard/` | ภาพหน้าเว็บ Dashboard ที่เรนเดอร์จากเบราว์เซอร์จริง |
 | `docs/screens-station/` | ภาพหน้าจอจริงของ Station v7.7.0 ทุกหน้า |
+| `docs/screens-oled/` | ภาพจำลองหน้าจอ OLED ของ Host v4.7.2-OLED ทุกหน้า |
 
 ## เริ่มต้นที่ไหน
 
