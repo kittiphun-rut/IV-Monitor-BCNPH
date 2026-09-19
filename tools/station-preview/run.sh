@@ -10,7 +10,7 @@ SKETCH="${2:-../../firmware/ESP32-S3-Station-V_7_7_1/ESP32-S3-Station-V_7_7_1.in
 python3 ../check-ino-types.py "$SKETCH"
 
 cp "$SKETCH" station.cpp
-cp "$(dirname "$SKETCH")/drop_detector.h" drop_detector.h
+[ -f "$(dirname "$SKETCH")/drop_detector.h" ] && cp "$(dirname "$SKETCH")/drop_detector.h" drop_detector.h || true
 g++ -std=gnu++17 -I../screen-preview -DESP_ARDUINO_VERSION_MAJOR=3 -Wall -Wno-unused-variable -o stpreview driver.cpp
 ./stpreview ops.txt
 python3 ../screen-preview/render.py ops.txt "$OUT"
