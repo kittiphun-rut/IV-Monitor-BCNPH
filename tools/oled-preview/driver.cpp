@@ -131,6 +131,24 @@ int main(int argc, char** argv) {
   }
   currentOledPage = 0;
 
+  // ---- หน้าตรวจการเชื่อมต่อ + กรณีเลขเตียงซ้ำ ----
+  for (int i = 0; i < 5; i++) {
+    stations[i].macKnown = true;
+    stations[i].srcMac[3] = 0x28; stations[i].srcMac[4] = 0xAB; stations[i].srcMac[5] = 0x10 + i;
+    heardIdAt[i] = g_millis;
+  }
+  currentOledPage = activeStationCount + 1; updateHostOLED(); emitMark("13_link_diag");
+
+  stations[0].idConflict = true;
+  currentOledPage = activeStationCount + 1; updateHostOLED(); emitMark("14_link_diag_dup_id");
+  currentOledPage = 0; updateHostOLED(); emitMark("15_block_dup_id_warning");
+  stations[0].idConflict = false;
+
+  heardIdAt[6] = g_millis;                 // ได้ยินเตียง 7 ทั้งที่เปิดใช้แค่ 5
+  currentOledPage = activeStationCount + 1; updateHostOLED(); emitMark("16_link_diag_extra_bed");
+  currentOledPage = 0; updateHostOLED(); emitMark("17_block_extra_bed_warning");
+  heardIdAt[6] = 0;
+
   // ---- ลิงก์อ่อน: เตือนก่อนที่เตียงจะหลุดไปเป็น OFFLINE ----
   stations[0].linkPct = 40;
   currentOledPage = 1; updateHostOLED(); emitMark("12_detail_weak_link");

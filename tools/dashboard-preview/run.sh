@@ -2,7 +2,7 @@
 # สร้างไฟล์ HTML ของหน้า Dashboard พร้อมข้อมูลจำลอง แล้วถ่ายภาพหน้าจอด้วย Chromium
 set -euo pipefail
 cd "$(dirname "$0")"
-SRC="${1:-../../firmware/ESP32-S3-Host-OLED-V_4_7_3}"
+SRC="${1:-../../firmware/ESP32-S3-Host-OLED-V_4_7_4}"
 OUT="${2:-../../docs/screens-dashboard}"
 mkdir -p "$OUT"
 python3 make_preview.py "$SRC" preview.html

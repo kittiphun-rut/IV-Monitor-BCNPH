@@ -21,6 +21,11 @@ TILES = [
     ("08_block_8beds.png",       "08  BLOCK MONITOR - 8 beds"),
     ("09_screensaver.png",       "09  SCREENSAVER"),
     ("12_detail_weak_link.png",  "12  BED DETAIL - weak link warning"),
+    ("13_link_diag.png",          "13  LINK DIAGNOSTIC - all bed IDs unique"),
+    ("14_link_diag_dup_id.png",   "14  LINK DIAGNOSTIC - two nodes share a bed ID"),
+    ("15_block_dup_id_warning.png","15  BLOCK MONITOR - duplicate bed ID warning"),
+    ("16_link_diag_extra_bed.png","16  LINK DIAGNOSTIC - heard a bed that is not enabled"),
+    ("17_block_extra_bed_warning.png","17  BLOCK MONITOR - add more beds"),
 ]
 
 # แถบแสดงแอนิเมชันหยด: 6 เฟรมติดกัน ห่างกันเฟรมละ 60 ms
