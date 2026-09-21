@@ -39,11 +39,31 @@ MOCK = """
     caseActive:true, caseStart:'18/09/2569 08:30'
   }));
   const data = {
-    version:'4.7.4-OLED', activeCount:beds.length, currentTime:'18/09/2569 09:15:20',
+    version:'4.7.5-OLED', activeCount:beds.length, currentTime:'18/09/2569 09:15:20',
     timeSynced:true, timeApprox:false, apClients:2, apMaxClients:8, channel:1,
     hostBatVolts:4.05, hostBatPct:92, snoozed:false, linkWeakPct:60, syncFail:0, heardBeyond:0, stations
   };
-  const logs = { logs:[], dropFactor:20 };
+  // ประวัติ 60 นาทีแบบสมจริง ใช้ให้กราฟและตารางในคู่มือมีข้อมูลให้ดู
+  // เตียง 1 ไหลนิ่งราว 80 mL/h แล้วช่วงท้ายค่อย ๆ ช้าลง (สายเริ่มพับ) เพื่อให้เห็นรูปกราฟจริง
+  const logRows = [];
+  for (let i = 0; i < 60; i++) {
+    const mm = String(15 + i).padStart(2, '0');
+    const slow = i > 46 ? (1 - (i - 46) * 0.055) : 1;
+    const rate = Math.max(0, (80 + Math.sin(i / 3.3) * 3.4) * slow);
+    const drops = Math.round(rate * 20 / 60);
+    logRows.push({
+      min: i + 1,
+      time: '18/09/2569 ' + String(8 + Math.floor((15 + i) / 60)).padStart(2, '0') + ':' + String((15 + i) % 60).padStart(2, '0') + ':00',
+      drops: drops,
+      vol: +(drops * (i + 1) / 20).toFixed(2),
+      rate: +rate.toFixed(2),
+      target: 80,
+      alert: i > 55 ? 2 : 0,
+      rssi: -58 - (i % 7),
+      battery: +(4.05 - i * 0.0015).toFixed(2)
+    });
+  }
+  const logs = { logs: logRows, dropFactor: 20 };
   window.fetch = function (url) {
     let body = {};
     if (String(url).includes('/api/data')) body = data;
@@ -65,5 +85,20 @@ MOCK = """
 </script>
 """
 html = html.replace("<script>", MOCK + "<script>", 1)
+
+# เลือกหน้าที่จะถ่ายภาพ ส่งมาทาง argv[3] (live | graphs | logs | about)
+TAB = sys.argv[3] if len(sys.argv) > 3 else "live"
+if TAB != "live":
+    html = html.replace("</body>", """
+<script>
+  window.addEventListener('load', function () {
+    setTimeout(function () {
+      var btns = document.querySelectorAll('.main-nav .nav-btn');
+      var idx = { live:0, graphs:1, logs:2, about:3 }['%s'];
+      if (btns[idx]) btns[idx].click();
+    }, 900);
+  });
+</script>
+</body>""" % TAB, 1)
 out.write_text(html, encoding="utf-8")
 print("เขียนแล้ว:", out, f"({len(html)} ตัวอักษร)")

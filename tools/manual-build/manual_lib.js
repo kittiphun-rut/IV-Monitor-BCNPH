@@ -92,7 +92,9 @@ function chapter(no, title) {
     new Paragraph({ children: [new PageBreak()] }),
     new Paragraph({
       alignment: AlignmentType.CENTER, heading: HeadingLevel.HEADING_1,
-      spacing: { before: 240, after: 240, line: 300 },
+      // ระยะบรรทัดต้องมากกว่าขนาดตัวอักษร (20pt) มิฉะนั้นสองบรรทัดของหัวบทจะซ้อนกัน
+      // เห็นชัดเมื่อชื่อบทมีตัวอักษรละตินซึ่งสูงกว่าตัวอักษรไทย
+      spacing: { before: 240, after: 240, line: 480 },
       children: [
         run('บทที่ ' + no + ' ', { bold: true, size: 40 }),
         new TextRun({ text: title, font: FONT, size: 40, bold: true, break: 1 }),
