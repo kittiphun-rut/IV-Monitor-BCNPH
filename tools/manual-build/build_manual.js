@@ -1,0 +1,95 @@
+const d = require('docx');
+const fs = require('fs');
+const L = require('./manual_lib.js');
+const front = require('./part_front.js');
+const c12 = require('./part_ch12.js');
+const c34 = require('./part_ch34.js');
+const c56 = require('./part_ch56.js');
+const ap = require('./part_appendix.js');
+
+// รอบที่สอง: เติมเลขหน้าจริงที่อ่านได้จาก PDF ของรอบแรก
+const mapFile = process.argv[3];
+if (mapFile && fs.existsSync(mapFile)) {
+  L.setPageMap(JSON.parse(fs.readFileSync(mapFile, 'utf8')));
+  console.log('ใช้เลขหน้าจริงจาก', mapFile);
+}
+
+const { Document, Packer, Paragraph, TextRun, Header, Footer, PageNumber,
+        AlignmentType, NumberFormat, convertInchesToTwip, LevelFormat } = d;
+const FONT = L.FONT;
+
+// ---- ขอบกระดาษตามรูปแบบเอกสารราชการ: บน/ซ้าย ๑.๕ นิ้ว  ล่าง/ขวา ๑ นิ้ว ----
+const PAGE = {
+  size: { width: 11906, height: 16838 },                  // A4
+  margin: {
+    top: convertInchesToTwip(1.5), left: convertInchesToTwip(1.5),
+    bottom: convertInchesToTwip(1), right: convertInchesToTwip(1),
+    header: convertInchesToTwip(0.8), footer: convertInchesToTwip(0.6),
+  },
+};
+
+function pageNumHeader(format) {
+  return new Header({
+    children: [new Paragraph({
+      alignment: AlignmentType.RIGHT,
+      children: [new TextRun({ font: FONT, size: 32, children: [PageNumber.CURRENT] })],
+    })],
+  });
+}
+
+const doc = new Document({
+  creator: 'กิตติพันธ์ รัตนคร',
+  title: 'คู่มือการปฏิบัติงาน การใช้งานระบบเฝ้าระวังการให้สารน้ำทางหลอดเลือดดำ Smart IV Alert',
+  description: 'คู่มือสำหรับพยาบาลวิชาชีพ หอผู้ป่วยอายุรกรรม โรงพยาบาลสูงเม่น จังหวัดแพร่',
+  styles: {
+    default: {
+      document: { run: { font: FONT, size: 32 }, paragraph: { spacing: { line: 276 } } },
+      heading1: { run: { font: FONT, size: 40, bold: true, color: '000000' } },
+      heading2: { run: { font: FONT, size: 36, bold: true, color: '000000' } },
+      heading3: { run: { font: FONT, size: 32, bold: true, color: '000000' } },
+    },
+  },
+  sections: [
+    // ---- ส่วนที่ ๑ ปกหน้า ไม่มีเลขหน้า ----
+    { properties: { page: PAGE, titlePage: false }, children: front.cover },
+
+    // ---- ส่วนที่ ๒ ส่วนนำ ใช้เลขหน้าเป็นพยัญชนะไทย ก ข ค ----
+    {
+      properties: {
+        page: { ...PAGE, pageNumbers: { start: 1, formatType: NumberFormat.THAI_LETTERS } },
+      },
+      headers: { default: pageNumHeader() },
+      children: [
+        ...front.preface.slice(1),          // ตัด PageBreak ตัวแรกออก เพราะขึ้นหน้าใหม่ด้วย section อยู่แล้ว
+        ...front.contentsEntries,
+        ...front.tableEntries,
+        ...front.figureEntries,
+      ],
+    },
+
+    // ---- ส่วนที่ ๓ เนื้อหา ใช้เลขหน้าอารบิกเริ่มที่ ๑ ----
+    {
+      properties: {
+        page: { ...PAGE, pageNumbers: { start: 1, formatType: NumberFormat.DECIMAL } },
+      },
+      headers: { default: pageNumHeader() },
+      children: [
+        ...c12.ch1.slice(1),                // ตัด PageBreak ตัวแรกของบทที่ ๑
+        ...c12.ch2,
+        ...c34.ch3,
+        ...c34.ch4,
+        ...c56.ch5,
+        ...c56.ch6,
+        ...ap.divider,
+        ...ap.apA, ...ap.apB, ...ap.apC, ...ap.apD, ...ap.apE,
+        ...ap.refs,
+      ],
+    },
+  ],
+});
+
+Packer.toBuffer(doc).then((buf) => {
+  const out = process.argv[2] || 'manual.docx';
+  fs.writeFileSync(out, buf);
+  console.log('เขียนแล้ว:', out, (buf.length / 1024).toFixed(0) + ' KB');
+});
