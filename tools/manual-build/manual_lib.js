@@ -74,15 +74,15 @@ function chapter(no, title) {
 
 function h2(text) {
   return new Paragraph({
-    heading: HeadingLevel.HEADING_2, spacing: { before: 200, after: 80 },
+    heading: HeadingLevel.HEADING_2, spacing: { before: 280, after: 90 },
     children: [run(text, { bold: true, size: 36 })],
   });
 }
 
 function h3(text) {
   return new Paragraph({
-    heading: HeadingLevel.HEADING_3, spacing: { before: 140, after: 60 },
-    indent: { left: convertInchesToTwip(0.3) },
+    heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 70 },
+    indent: { left: convertInchesToTwip(0.35) },
     children: [run(text, { bold: true, size: 32 })],
   });
 }

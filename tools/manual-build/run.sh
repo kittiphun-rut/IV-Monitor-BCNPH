@@ -10,6 +10,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 OUT="${1:-../../docs/คู่มือพยาบาล_Smart_IV_Alert.docx}"
+TXT="${OUT%.docx}.txt"
 
 [ -d node_modules ] || npm install docx --no-audit --no-fund >/dev/null
 
@@ -49,4 +50,8 @@ sys.exit(1 if d else 0)"; then
 else
   echo "ข้าม: ไม่มี soffice หรือ pdftotext จึงใช้เลขหน้าเดิมใน pagemap.json"
 fi
+# ---- ฉบับข้อความล้วน สร้างจากไฟล์ .docx ที่เสร็จแล้ว จึงตรงกับเล่มจริงเสมอ ----
+python3 make_plaintext.py "$OUT" "$TXT"
+
 echo "เสร็จแล้ว: $OUT"
+echo "          $TXT"
