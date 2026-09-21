@@ -1,18 +1,22 @@
 const d = require('docx');
 const fs = require('fs');
 const L = require('./manual_lib.js');
-const front = require('./part_front.js');
-const c12 = require('./part_ch12.js');
-const c34 = require('./part_ch34.js');
-const c56 = require('./part_ch56.js');
-const ap = require('./part_appendix.js');
 
-// รอบที่สอง: เติมเลขหน้าจริงที่อ่านได้จาก PDF ของรอบแรก
+// เติมเลขหน้าจริงที่อ่านได้จาก PDF ของรอบแรก
+// ต้องทำ "ก่อน" require ไฟล์เนื้อหา เพราะบรรทัดสารบัญถูกสร้างตอนโหลดโมดูล
+// ถ้าตั้งทีหลัง toc() จะถูกเรียกไปแล้วด้วยตารางเปล่า แล้วตกไปใช้เลขหน้าสำรองที่เขียนไว้ในโค้ด
 const mapFile = process.argv[3];
 if (mapFile && fs.existsSync(mapFile)) {
   L.setPageMap(JSON.parse(fs.readFileSync(mapFile, 'utf8')));
   console.log('ใช้เลขหน้าจริงจาก', mapFile);
 }
+
+const front = require('./part_front.js');
+const c12 = require('./part_ch12.js');
+const c34 = require('./part_ch34.js');
+const c56 = require('./part_ch56.js');
+const cCal = require('./part_calib.js');
+const ap = require('./part_appendix.js');
 
 const { Document, Packer, Paragraph, TextRun, Header, Footer, PageNumber,
         AlignmentType, NumberFormat, convertInchesToTwip, LevelFormat,
@@ -107,6 +111,7 @@ const doc = new Document({
         ...c12.ch1.slice(1),                // ตัด PageBreak ตัวแรกของบทที่ ๑
         ...c12.ch2,
         ...c34.ch3,
+        ...cCal.chCalib,      // บทที่ ๔ การติดตั้งเซนเซอร์และการคาลิเบรต
         ...c34.ch4,
         ...c56.ch5,
         ...c56.ch6,

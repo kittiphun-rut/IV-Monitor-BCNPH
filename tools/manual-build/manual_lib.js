@@ -23,13 +23,24 @@ function run(text, o = {}) {
                        italics: !!o.italics, color: o.color, underline: o.underline ? {} : undefined });
 }
 
+// แปลงข้อความที่คร่อมด้วย ** ** ให้เป็นตัวหนา
+// มีไว้กันพลาด เพราะเอกสาร Word ไม่รู้จักเครื่องหมายแบบ Markdown
+// ถ้าเผลอพิมพ์ ** ลงไป จะกลายเป็นดอกจันบนหน้ากระดาษจริง
+function runsFrom(text, o = {}) {
+  if (Array.isArray(text)) return text;
+  const parts = String(text).split('**');
+  return parts
+    .filter((t, i) => t !== '' || i === 0)
+    .map((t, i) => run(t, { ...o, bold: o.bold || i % 2 === 1 }));
+}
+
 // ย่อหน้าธรรมดา (ย่อหน้าแรกเยื้อง 1 ซม. ตามระเบียบงานสารบรรณ)
 function p(text, o = {}) {
   return new Paragraph({
     alignment: o.align || AlignmentType.THAI_DISTRIBUTE,
     spacing: { after: o.after === undefined ? 60 : o.after, line: o.line || 300 },
     indent: o.indent === undefined ? { firstLine: convertInchesToTwip(0.4) } : o.indent,
-    children: Array.isArray(text) ? text : [run(text, o)],
+    children: runsFrom(text, o),
   });
 }
 
@@ -38,7 +49,7 @@ function plain(text, o = {}) {
     alignment: o.align || AlignmentType.LEFT,
     spacing: { after: o.after === undefined ? 60 : o.after, line: o.line || 300 },
     indent: o.indent,
-    children: Array.isArray(text) ? text : [run(text, o)],
+    children: runsFrom(text, o),
   });
 }
 
@@ -81,7 +92,7 @@ function item(marker, text, o = {}) {
   return new Paragraph({
     spacing: { after: o.after === undefined ? 40 : o.after, line: 300 },
     indent: { left: convertInchesToTwip(o.level ? 0.95 : 0.6), hanging: convertInchesToTwip(0.35) },
-    children: [run(marker + '\t', o), run(text, o)],
+    children: [run(marker + '\t', o), ...runsFrom(text, o)],
     tabStops: [{ type: d.TabStopType.LEFT, position: convertInchesToTwip(o.level ? 0.95 : 0.6) }],
   });
 }
@@ -169,7 +180,8 @@ function imgPair(a, b, w, h) {
     children: [img(f.file, w, h), caption(f.cap)],
   });
   return new Table({ columnWidths: [half, half], width: { size: CONTENT_DXA, type: WidthType.DXA },
-                     borders: bd, rows: [new TableRow({ children: [mk(a), mk(b)] })] });
+                     borders: bd,
+                     rows: [new TableRow({ cantSplit: true, children: [mk(a), mk(b)] })] });
 }
 
 // บรรทัดสารบัญพร้อมจุดไข่ปลาและเลขหน้าชิดขวา
@@ -208,6 +220,6 @@ function noteBox(title, lines, fill = 'FFF2CC', border = 'BF8F00') {
   });
 }
 
-module.exports = { d, FONT, SZ, CONTENT_DXA, setPageMap, tocKey, tocFieldBegin, tocFieldEnd,
+module.exports = { d, FONT, SZ, CONTENT_DXA, setPageMap, tocKey, tocFieldBegin, tocFieldEnd, runsFrom,
                    tableCaption, run, p, plain, center, chapter, h2, h3,
                    item, table, cell, caption, img, imgPair, toc, noteBox };
