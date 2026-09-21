@@ -1,5 +1,5 @@
 const L = require('./manual_lib.js');
-const { d, run, p, plain, center, chapter, h2, h3, item, table, img, caption, noteBox } = L;
+const { d, run, p, plain, center, chapter, h2, h3, item, table, tableCaption, img, caption, noteBox } = L;
 const { Paragraph, AlignmentType, PageBreak } = d;
 
 // ===================== บทที่ ๕ การแก้ไขปัญหา =====================
@@ -7,7 +7,7 @@ const ch5 = [
   ...chapter('๕', 'การแก้ไขปัญหาที่พบบ่อย'),
 
   h2('๕.๑ ตารางอาการ สาเหตุ และวิธีแก้ไข'),
-  center('ตารางที่ ๑๒  อาการ สาเหตุ และวิธีแก้ไข', { bold: true, size: 30, after: 100 }),
+  tableCaption('ตารางที่ ๑๒  อาการ สาเหตุ และวิธีแก้ไข'),
   table(
     [{ t: 'อาการที่พบ', w: 0.26 }, { t: 'สาเหตุที่เป็นไปได้', w: 0.33 }, { t: 'วิธีแก้ไขเบื้องต้น', w: 0.41 }],
     [
@@ -118,7 +118,7 @@ const ch6 = [
   item('(๔)', 'ตรวจนับจำนวนเครื่องและอุปกรณ์ประกอบทุกครั้งที่ส่งเวร'),
 
   h2('๖.๔ การตรวจสอบตามรอบเวลา'),
-  center('ตารางที่ ๑๓  รอบการตรวจสอบและบำรุงรักษา', { bold: true, size: 30, after: 100 }),
+  tableCaption('ตารางที่ ๑๓  รอบการตรวจสอบและบำรุงรักษา'),
   table(
     [{ t: 'รอบเวลา', w: 0.2 }, { t: 'รายการที่ต้องตรวจ', w: 0.55 }, { t: 'ผู้รับผิดชอบ', w: 0.25, align: AlignmentType.CENTER }],
     [

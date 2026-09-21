@@ -1,5 +1,5 @@
 const L = require('./manual_lib.js');
-const { d, run, p, plain, center, chapter, h2, h3, item, table, img, imgPair, caption, noteBox, CONTENT_DXA } = L;
+const { d, run, p, plain, center, chapter, h2, h3, item, table, tableCaption, img, imgPair, caption, noteBox, CONTENT_DXA } = L;
 const { Paragraph, AlignmentType, Table, TableRow, TableCell, WidthType, ShadingType, BorderStyle } = d;
 
 // ---- ผังขั้นตอน: กล่องเรียงลงมาพร้อมลูกศร ----
@@ -123,7 +123,7 @@ const ch3 = [
   item('(๕)', 'ส่งเวรโดยระบุเตียงที่ยังใช้ระบบอยู่ เลขเตียงของแต่ละเครื่อง และเหตุการณ์แจ้งเตือนที่เกิดขึ้นในเวร'),
 
   h2('๓.๙ ตารางกำหนดหน้าที่ความรับผิดชอบ'),
-  center('ตารางที่ ๙  ตารางกำหนดหน้าที่ความรับผิดชอบ', { bold: true, size: 30, after: 100 }),
+  tableCaption('ตารางที่ ๙  ตารางกำหนดหน้าที่ความรับผิดชอบ'),
   table(
     [{ t: 'กิจกรรม', w: 0.34 }, { t: 'พยาบาลวิชาชีพ', w: 0.22, align: AlignmentType.CENTER },
      { t: 'หัวหน้าเวร', w: 0.2, align: AlignmentType.CENTER }, { t: 'ผู้ดูแลระบบ', w: 0.24, align: AlignmentType.CENTER }],
@@ -151,7 +151,7 @@ const ch4 = [
               'โดยไม่ต้องหยุดงานที่กำลังทำอยู่ทันที'),
 
   h2('๔.๒ ตารางสัญญาณเตือนทั้งหมด'),
-  center('ตารางที่ ๑๐  สัญญาณเตือนทั้งหมดและแนวทางการตอบสนอง', { bold: true, size: 30, after: 100 }),
+  tableCaption('ตารางที่ ๑๐  สัญญาณเตือนทั้งหมดและแนวทางการตอบสนอง'),
   table(
     [{ t: 'ข้อความบนจอ', w: 0.19 }, { t: 'ระดับ', w: 0.11, align: AlignmentType.CENTER },
      { t: 'สาเหตุที่เป็นไปได้', w: 0.35 }, { t: 'แนวทางการตอบสนอง', w: 0.35 }],
@@ -198,7 +198,7 @@ const ch4 = [
 
   h2('๔.๔ เกณฑ์ที่ระบบใช้ตัดสินใจแจ้งเตือน'),
   p('การทราบเกณฑ์เหล่านี้ช่วยให้พยาบาลเข้าใจว่าเหตุใดระบบจึงเตือนหรือไม่เตือนในบางสถานการณ์'),
-  center('ตารางที่ ๑๑  เกณฑ์ที่ระบบใช้ตัดสินใจแจ้งเตือน', { bold: true, size: 30, after: 100 }),
+  tableCaption('ตารางที่ ๑๑  เกณฑ์ที่ระบบใช้ตัดสินใจแจ้งเตือน'),
   table(
     [{ t: 'สัญญาณเตือน', w: 0.26 }, { t: 'เกณฑ์ที่ระบบใช้', w: 0.74 }],
     [

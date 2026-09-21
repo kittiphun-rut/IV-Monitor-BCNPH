@@ -15,7 +15,24 @@ if (mapFile && fs.existsSync(mapFile)) {
 }
 
 const { Document, Packer, Paragraph, TextRun, Header, Footer, PageNumber,
-        AlignmentType, NumberFormat, convertInchesToTwip, LevelFormat } = d;
+        AlignmentType, NumberFormat, convertInchesToTwip, LevelFormat,
+        TabStopType, LeaderType } = d;
+const CONTENT_DXA = L.CONTENT_DXA;
+
+// สไตล์ของบรรทัดสารบัญ — สำคัญมาก
+// เมื่อผู้ใช้สั่งอัปเดตสารบัญ Word จะจัดรูปแบบบรรทัดใหม่ด้วยสไตล์ชื่อ TOC 1..TOC 9
+// ถ้าไม่กำหนดไว้ Word จะใช้ค่าปริยายของตัวเอง (Calibri ๑๑ พอยต์) ซึ่งผิดรูปแบบราชการทันที
+function tocStyle(id, name, indentInch, bold) {
+  return {
+    id, name, basedOn: 'Normal', next: 'Normal', quickFormat: false,
+    run: { font: FONT, size: 32, bold },
+    paragraph: {
+      spacing: { before: bold ? 120 : 0, after: 40, line: 300 },
+      indent: { left: convertInchesToTwip(indentInch) },
+      tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_DXA, leader: LeaderType.DOT }],
+    },
+  };
+}
 const FONT = L.FONT;
 
 // ---- ขอบกระดาษตามรูปแบบเอกสารราชการ: บน/ซ้าย ๑.๕ นิ้ว  ล่าง/ขวา ๑ นิ้ว ----
@@ -41,6 +58,7 @@ const doc = new Document({
   creator: 'กิตติพันธ์ รัตนคร',
   title: 'คู่มือการปฏิบัติงาน การใช้งานระบบเฝ้าระวังการให้สารน้ำทางหลอดเลือดดำ Smart IV Alert',
   description: 'คู่มือสำหรับพยาบาลวิชาชีพ หอผู้ป่วยอายุรกรรม โรงพยาบาลสูงเม่น จังหวัดแพร่',
+  features: { updateFields: true },      // ให้ Word อัปเดตสารบัญเองตอนเปิดไฟล์
   styles: {
     default: {
       document: { run: { font: FONT, size: 32 }, paragraph: { spacing: { line: 276 } } },
@@ -48,6 +66,18 @@ const doc = new Document({
       heading2: { run: { font: FONT, size: 36, bold: true, color: '000000' } },
       heading3: { run: { font: FONT, size: 32, bold: true, color: '000000' } },
     },
+    paragraphStyles: [
+      // สไตล์ของคำบรรยาย ใช้เป็น "ที่หมาย" ให้ฟิลด์สารบัญตาราง/สารบัญภาพเก็บรายการเอง
+      { id: 'CaptionTable', name: 'Caption Table', basedOn: 'Normal', next: 'Normal',
+        run: { font: FONT, size: 30, bold: true },
+        paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 120, after: 100, line: 288 } } },
+      { id: 'CaptionFigure', name: 'Caption Figure', basedOn: 'Normal', next: 'Normal',
+        run: { font: FONT, size: 28 },
+        paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 60, after: 160, line: 288 } } },
+      tocStyle('TOC1', 'toc 1', 0,    true),    // ชื่อบท / ภาคผนวก
+      tocStyle('TOC2', 'toc 2', 0.35, false),   // หัวข้อย่อย
+      tocStyle('TOC3', 'toc 3', 0,    false),   // รายการตารางและภาพ
+    ],
   },
   sections: [
     // ---- ส่วนที่ ๑ ปกหน้า ไม่มีเลขหน้า ----

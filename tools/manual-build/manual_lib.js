@@ -44,18 +44,19 @@ function plain(text, o = {}) {
 
 function center(text, o = {}) { return plain(text, { ...o, align: AlignmentType.CENTER }); }
 
-// หัวบท: "บทที่ n" กลางหน้า แล้วชื่อบทกลางหน้า
+// หัวบท: แสดงเป็นสองบรรทัดกลางหน้า แต่เป็น "ย่อหน้าเดียว" ที่ใช้สไตล์ Heading 1
+// รวมไว้ย่อหน้าเดียวเพราะสารบัญอัตโนมัติของ Word ดึงข้อความจากย่อหน้าหัวข้อทั้งย่อหน้า
+// ถ้าแยกเป็นสองย่อหน้า สารบัญจะได้แค่ "บทที่ ๑" โดยไม่มีชื่อบท
 function chapter(no, title) {
   return [
     new Paragraph({ children: [new PageBreak()] }),
     new Paragraph({
       alignment: AlignmentType.CENTER, heading: HeadingLevel.HEADING_1,
-      spacing: { before: 240, after: 0 },
-      children: [run('บทที่ ' + no, { bold: true, size: 40 })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER, spacing: { after: 240 },
-      children: [run(title, { bold: true, size: 40 })],
+      spacing: { before: 240, after: 240, line: 300 },
+      children: [
+        run('บทที่ ' + no + ' ', { bold: true, size: 40 }),
+        new TextRun({ text: title, font: FONT, size: 40, bold: true, break: 1 }),
+      ],
     }),
   ];
 }
@@ -121,11 +122,32 @@ function table(cols, rows, o = {}) {
   });
 }
 
+// คำบรรยายใต้ภาพ — ใช้สไตล์ CaptionFigure เพื่อให้ TOC ของสารบัญภาพเก็บได้เอง
 function caption(text) {
   return new Paragraph({
+    style: 'CaptionFigure',
     alignment: AlignmentType.CENTER, spacing: { before: 60, after: 160, line: 288 },
     children: [run(text, { size: 28 })],
   });
+}
+
+// คำบรรยายเหนือตาราง — ใช้สไตล์ CaptionTable เพื่อให้ TOC ของสารบัญตารางเก็บได้เอง
+function tableCaption(text) {
+  return new Paragraph({
+    style: 'CaptionTable',
+    alignment: AlignmentType.CENTER, spacing: { before: 120, after: 100, line: 288 },
+    children: [run(text, { bold: true, size: 30 })],
+  });
+}
+
+// ---- จุดหมายสำหรับแทรกฟิลด์สารบัญอัตโนมัติ ----
+// docx-js รุ่นนี้สร้างฟิลด์พร้อมผลลัพธ์แคชไม่ได้ จึงวางข้อความสัญลักษณ์ไว้ก่อน
+// แล้วให้ inject_toc_field.py แปลงเป็นฟิลด์ TOC จริงหลังแพ็กไฟล์เสร็จ
+function tocFieldBegin(instr) {
+  return new Paragraph({ children: [run('@@TOC_BEGIN:' + instr + '@@')] });
+}
+function tocFieldEnd() {
+  return new Paragraph({ children: [run('@@TOC_END@@')] });
 }
 
 function img(file, w, h) {
@@ -186,5 +208,6 @@ function noteBox(title, lines, fill = 'FFF2CC', border = 'BF8F00') {
   });
 }
 
-module.exports = { d, FONT, SZ, CONTENT_DXA, setPageMap, tocKey, run, p, plain, center, chapter, h2, h3,
+module.exports = { d, FONT, SZ, CONTENT_DXA, setPageMap, tocKey, tocFieldBegin, tocFieldEnd,
+                   tableCaption, run, p, plain, center, chapter, h2, h3,
                    item, table, cell, caption, img, imgPair, toc, noteBox };

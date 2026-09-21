@@ -1,5 +1,6 @@
 const L = require('./manual_lib.js');
-const { d, run, p, plain, center, h2, h3, item, table, img, imgPair, toc, noteBox, caption } = L;
+const { d, run, p, plain, center, h2, h3, item, table, img, imgPair, toc, noteBox, caption,
+        tocFieldBegin, tocFieldEnd } = L;
 const { Paragraph, PageBreak, AlignmentType, convertInchesToTwip } = d;
 
 const VER_STATION = '7.7.2';
@@ -73,6 +74,7 @@ const contentsEntries = [
   toc('สารบัญภาพ', 'ง'),
 
   plain('', { after: 80 }),
+  tocFieldBegin('TOC \\o "1-2" \\h \\z \\u'),
   toc('บทที่ ๑  บทนำ', 1, { bold: true }),
   toc('๑.๑ ความเป็นมาและความสำคัญ', 1, { level: 1 }),
   toc('๑.๒ วัตถุประสงค์ของคู่มือ', 1, { level: 1 }),
@@ -134,12 +136,14 @@ const contentsEntries = [
   toc('ภาคผนวก จ  การ์ดสรุปย่อสำหรับติดข้างเตียง', 38, { level: 1 }),
   plain('', { after: 80 }),
   toc('เอกสารอ้างอิง', 39, { bold: true }),
+  tocFieldEnd(),
 ];
 
 // ============================ สารบัญตาราง / ภาพ ============================
 const tableEntries = [
   new Paragraph({ children: [new PageBreak()] }),
   center('สารบัญตาราง', { bold: true, size: 40, after: 280 }),
+  tocFieldBegin('TOC \\t "CaptionTable,3" \\h \\z'),
   toc('ตารางที่ ๑  นิยามศัพท์ที่ใช้ในคู่มือ', 2),
   toc('ตารางที่ ๒  หน้าที่ของปุ่มบนเครื่องประจำเตียง', 7),
   toc('ตารางที่ ๓  หน้าจอทั้งสี่หน้าของเครื่องประจำเตียง', 8),
@@ -154,11 +158,13 @@ const tableEntries = [
   toc('ตารางที่ ๑๒ อาการ สาเหตุ และวิธีแก้ไข', 26),
   toc('ตารางที่ ๑๓ รอบการตรวจสอบและบำรุงรักษา', 31),
   toc('ตารางที่ ๑๔ อัตราหยดสำเร็จรูป', 35),
+  tocFieldEnd(),
 ];
 
 const figureEntries = [
   new Paragraph({ children: [new PageBreak()] }),
   center('สารบัญภาพ', { bold: true, size: 40, after: 280 }),
+  tocFieldBegin('TOC \\t "CaptionFigure,3" \\h \\z'),
   toc('ภาพที่ ๑  องค์ประกอบของระบบ', 5),
   toc('ภาพที่ ๒  หน้าจอหลักและหน้าตรวจการเชื่อมต่อของเครื่องประจำเตียง', 8),
   toc('ภาพที่ ๓  หน้าจอรวมทุกเตียงบนเครื่องศูนย์กลาง', 10),
@@ -168,6 +174,7 @@ const figureEntries = [
   toc('ภาพที่ ๗  หน้าจอตั้งเลขเตียง', 16),
   toc('ภาพที่ ๘  หน้าจอเตือนเหตุวิกฤตและหน้าจอเตือนสารน้ำใกล้หมด', 24),
   toc('ภาพที่ ๙  หน้าตรวจการเชื่อมต่อที่พบเลขเตียงซ้ำ', 28),
+  tocFieldEnd(),
 ];
 
 module.exports = { cover, preface, contentsEntries, tableEntries, figureEntries, VER_STATION, VER_HOST };

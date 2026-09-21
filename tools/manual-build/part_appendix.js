@@ -1,5 +1,5 @@
 const L = require('./manual_lib.js');
-const { d, run, p, plain, center, h2, h3, item, table, noteBox, caption, CONTENT_DXA } = L;
+const { d, run, p, plain, center, h2, h3, item, table, tableCaption, noteBox, caption, CONTENT_DXA } = L;
 const { Paragraph, PageBreak, AlignmentType, Table, TableRow, TableCell, WidthType, ShadingType, BorderStyle } = d;
 
 function appendixTitle(letter, title) {
@@ -82,7 +82,7 @@ const apC = [
   p('สูตรคำนวณอัตราหยด คือ อัตราหยด (หยดต่อนาที) เท่ากับ อัตราการไหล (มิลลิลิตรต่อชั่วโมง) ' +
     'คูณด้วยค่า Drop Factor แล้วหารด้วย ๖๐'),
   plain('', { after: 120 }),
-  center('ตารางที่ ๑๔  อัตราหยดสำเร็จรูป', { bold: true, size: 30, after: 100 }),
+  tableCaption('ตารางที่ ๑๔  อัตราหยดสำเร็จรูป'),
   table(
     [{ t: 'อัตราการไหล\n(mL/h)', w: 0.25, align: AlignmentType.CENTER },
      { t: 'ชุด ๒๐ หยด/mL\n(หยดต่อนาที)', w: 0.25, align: AlignmentType.CENTER },
