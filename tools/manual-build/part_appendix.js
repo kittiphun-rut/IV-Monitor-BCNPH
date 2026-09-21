@@ -1,5 +1,5 @@
 const L = require('./manual_lib.js');
-const { d, run, p, plain, center, h2, h3, item, table, tableCaption, noteBox, caption, CONTENT_DXA } = L;
+const { d, run, p, plain, center, h2, h3, item, table, tableCaption, noteBox, caption, eq, eqWhere, CONTENT_DXA } = L;
 const { Paragraph, PageBreak, AlignmentType, Table, TableRow, TableCell, WidthType, ShadingType, BorderStyle } = d;
 
 function appendixTitle(letter, title) {
@@ -73,28 +73,40 @@ const rates = [20, 30, 40, 50, 60, 80, 100, 120, 125, 150, 200];
 const rateRows = rates.map((r) => [
   String(r),
   (r * 20 / 60).toFixed(1),
+  (r * 15 / 60).toFixed(1),
   (r * 60 / 60).toFixed(0),
-  (3600 / r).toFixed(1) + ' ชม.',
+  // เวลาหมดถุง = ปริมาตร / อัตราการไหล (สมการที่ ฉ.๔)
+  // ของเดิมเขียน 3600/r ซึ่งเป็นสูตรของ "วินาทีต่อหยด" ไม่ใช่ชั่วโมงต่อถุง
+  (1000 / r).toFixed(1) + ' ชม.',
 ]);
 
 const apC = [
   ...appendixTitle('ค', 'ตารางอัตราหยดสำเร็จรูป'),
-  p('สูตรคำนวณอัตราหยด คือ อัตราหยด (หยดต่อนาที) เท่ากับ อัตราการไหล (มิลลิลิตรต่อชั่วโมง) ' +
-    'คูณด้วยค่า Drop Factor แล้วหารด้วย ๖๐'),
-  plain('', { after: 120 }),
+  p('ตารางนี้คำนวณล่วงหน้าไว้จากสมการที่ ฉ.๒ และสมการที่ ฉ.๔ ในภาคผนวก ฉ ' +
+    'หากอัตราการไหลตามคำสั่งการรักษาไม่มีในตาราง ให้คำนวณเองจากสมการต่อไปนี้'),
+  eq('R  =  (Q × F) ÷ ๖๐', 'ฉ.๒'),
+  eq('T  =  V ÷ Q', 'ฉ.๔'),
+  ...eqWhere([
+    'R  คือ อัตราหยด หน่วยหยดต่อนาที',
+    'Q  คือ อัตราการไหล หน่วยมิลลิลิตรต่อชั่วโมง',
+    'F  คือ ค่า Drop Factor จากซองชุดให้สารน้ำ หน่วยหยดต่อมิลลิลิตร',
+    'T  คือ เวลาจนสารน้ำหมดถุง หน่วยชั่วโมง  และ V คือ ปริมาตรในถุง หน่วยมิลลิลิตร',
+  ]),
   tableCaption('ตารางที่ ๑๙  อัตราหยดสำเร็จรูป'),
   table(
-    [{ t: 'อัตราการไหล\n(mL/h)', w: 0.25, align: AlignmentType.CENTER },
-     { t: 'ชุด ๒๐ หยด/mL\n(หยดต่อนาที)', w: 0.25, align: AlignmentType.CENTER },
-     { t: 'ชุด ๖๐ หยด/mL\n(หยดต่อนาที)', w: 0.25, align: AlignmentType.CENTER },
-     { t: 'เวลาที่ใช้ต่อ\nสารน้ำ ๑๐๐๐ mL', w: 0.25, align: AlignmentType.CENTER }],
+    [{ t: 'อัตราการไหล\n(mL/h)', w: 0.20, align: AlignmentType.CENTER },
+     { t: 'ชุด ๒๐ หยด/mL\n(หยดต่อนาที)', w: 0.20, align: AlignmentType.CENTER },
+     { t: 'ชุด ๑๕ หยด/mL\n(หยดต่อนาที)', w: 0.20, align: AlignmentType.CENTER },
+     { t: 'ชุด ๖๐ หยด/mL\n(หยดต่อนาที)', w: 0.20, align: AlignmentType.CENTER },
+     { t: 'เวลาที่ใช้ต่อ\nสารน้ำ ๑๐๐๐ mL', w: 0.20, align: AlignmentType.CENTER }],
     rateRows),
   plain('', { after: 160 }),
   noteBox('วิธีใช้ตาราง', [
     'ตรวจค่า Drop Factor จากซองชุดให้สารน้ำที่ใช้จริงก่อนเสมอ',
     'หาแถวที่ตรงกับอัตราการไหลตามคำสั่งการรักษา แล้วอ่านจำนวนหยดต่อนาทีจากคอลัมน์ที่ตรงกับชุดที่ใช้',
     'ปรับโรลเลอร์จนนับหยดได้ใกล้เคียงกับค่าที่อ่านได้ แล้วจึงตรวจยืนยันกับอัตราการไหลที่แสดงบนหน้าจอ',
-    'หากอัตราการไหลตามคำสั่งไม่มีในตาราง ให้ใช้สูตรคำนวณด้านบน',
+    'หากอัตราการไหลตามคำสั่งไม่มีในตาราง ให้ใช้สมการที่ ฉ.๒ คำนวณเอง',
+    'ดูสมการทั้งหมดพร้อมตัวอย่างการคำนวณทีละขั้นได้ที่ภาคผนวก ฉ',
   ]),
 ];
 

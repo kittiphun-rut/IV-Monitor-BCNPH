@@ -55,6 +55,35 @@ function plain(text, o = {}) {
 
 function center(text, o = {}) { return plain(text, { ...o, align: AlignmentType.CENTER }); }
 
+// ---- สมการแสดงผล ----
+// รูปแบบเอกสารราชการ: ตัวสมการอยู่กึ่งกลางกรอบพิมพ์ เลขสมการอยู่ในวงเล็บชิดขอบขวา
+// ใช้แท็บสองจุด (กึ่งกลาง + ชิดขวา) แทนการจัดย่อหน้าให้กึ่งกลาง เพราะถ้าจัดทั้งย่อหน้า
+// ให้กึ่งกลาง เลขสมการจะถูกดึงเข้ามาชิดตัวสมการ ไม่ไปอยู่ที่ขอบขวาตามรูปแบบ
+function eq(text, no, o = {}) {
+  const kids = [run('\t', o), run(text, { bold: true, ...o })];
+  if (no) kids.push(run('\t(' + no + ')', o));
+  return new Paragraph({
+    alignment: AlignmentType.LEFT,
+    spacing: { before: o.before === undefined ? 140 : o.before,
+               after:  o.after  === undefined ? 140 : o.after, line: 300 },
+    tabStops: [
+      { type: d.TabStopType.CENTER, position: Math.round(CONTENT_DXA / 2) },
+      { type: d.TabStopType.RIGHT,  position: CONTENT_DXA },
+    ],
+    children: kids,
+  });
+}
+
+// บรรทัดนิยามตัวแปรใต้สมการ — ย่อหน้าเข้ามาให้เห็นว่าเป็นส่วนขยายของสมการด้านบน
+function eqWhere(lines) {
+  return lines.map((t, i) => new Paragraph({
+    alignment: AlignmentType.LEFT,
+    spacing: { after: i === lines.length - 1 ? 140 : 40, line: 300 },
+    indent: { left: convertInchesToTwip(1.0), hanging: convertInchesToTwip(0.45) },
+    children: runsFrom(t),
+  }));
+}
+
 // หัวบท: แสดงเป็นสองบรรทัดกลางหน้า แต่เป็น "ย่อหน้าเดียว" ที่ใช้สไตล์ Heading 1
 // รวมไว้ย่อหน้าเดียวเพราะสารบัญอัตโนมัติของ Word ดึงข้อความจากย่อหน้าหัวข้อทั้งย่อหน้า
 // ถ้าแยกเป็นสองย่อหน้า สารบัญจะได้แค่ "บทที่ ๑" โดยไม่มีชื่อบท
@@ -220,6 +249,6 @@ function noteBox(title, lines, fill = 'FFF2CC', border = 'BF8F00') {
   });
 }
 
-module.exports = { d, FONT, SZ, CONTENT_DXA, setPageMap, tocKey, tocFieldBegin, tocFieldEnd, runsFrom,
+module.exports = { d, FONT, SZ, CONTENT_DXA, setPageMap, tocKey, tocFieldBegin, tocFieldEnd, runsFrom, eq, eqWhere,
                    tableCaption, run, p, plain, center, chapter, h2, h3,
                    item, table, cell, caption, img, imgPair, toc, noteBox };

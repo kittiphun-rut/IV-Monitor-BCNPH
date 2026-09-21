@@ -134,6 +134,19 @@ def main():
                 out.append('')
             continue
 
+        # สมการ: ย่อหน้าขึ้นต้นด้วยแท็บ (ตัวสมการกึ่งกลาง เลขสมการชิดขวา)
+        # ต้องตรวจก่อนบรรทัดสารบัญ เพราะทั้งคู่ใช้แท็บเหมือนกัน แต่สมการไม่มีจุดไข่ปลา
+        if text.startswith('\t'):
+            body, _, num = text.lstrip('\t').rpartition('\t')
+            body, num = body.strip(), num.strip()
+            if not body:
+                body, num = num, ''
+            line = ' ' * max(0, (WIDTH - dwidth(body)) // 2) + body
+            if num:
+                line += ' ' * max(1, WIDTH - dwidth(line) - dwidth(num)) + num
+            out.append(line)
+            continue
+
         # บรรทัดสารบัญ: ข้อความ ... เลขหน้า
         if '\t' in text:
             left, _, right = text.rpartition('\t')

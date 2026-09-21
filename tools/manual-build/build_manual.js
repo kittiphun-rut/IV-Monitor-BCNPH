@@ -17,6 +17,7 @@ const c34 = require('./part_ch34.js');
 const c56 = require('./part_ch56.js');
 const cCal = require('./part_calib.js');
 const ap = require('./part_appendix.js');
+const apEq = require('./part_equations.js');
 
 const { Document, Packer, Paragraph, TextRun, Header, Footer, PageNumber,
         AlignmentType, NumberFormat, convertInchesToTwip, LevelFormat,
@@ -116,7 +117,7 @@ const doc = new Document({
         ...c56.ch5,
         ...c56.ch6,
         ...ap.divider,
-        ...ap.apA, ...ap.apB, ...ap.apC, ...ap.apD, ...ap.apE,
+        ...ap.apA, ...ap.apB, ...ap.apC, ...ap.apD, ...ap.apE, ...apEq.apF,
         ...ap.refs,
       ],
     },
