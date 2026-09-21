@@ -11,13 +11,8 @@ if (mapFile && fs.existsSync(mapFile)) {
   console.log('ใช้เลขหน้าจริงจาก', mapFile);
 }
 
-const front = require('./part_front.js');
-const c12 = require('./part_ch12.js');
-const c34 = require('./part_ch34.js');
-const c56 = require('./part_ch56.js');
-const cCal = require('./part_calib.js');
-const ap = require('./part_appendix.js');
-const apEq = require('./part_equations.js');
+const front = require('./part_web_front.js');
+const W = require('./part_web.js');
 
 const { Document, Packer, Paragraph, TextRun, Header, Footer, PageNumber,
         AlignmentType, NumberFormat, convertInchesToTwip, LevelFormat,
@@ -61,8 +56,8 @@ function pageNumHeader(format) {
 
 const doc = new Document({
   creator: 'กิตติพันธ์ รัตนคร',
-  title: 'คู่มือการปฏิบัติงาน การใช้งานระบบเฝ้าระวังการให้สารน้ำทางหลอดเลือดดำ Smart IV Alert',
-  description: 'คู่มือสำหรับพยาบาลวิชาชีพ หอผู้ป่วยอายุรกรรม โรงพยาบาลสูงเม่น จังหวัดแพร่',
+  title: 'คู่มือการปฏิบัติงาน การใช้งานหน้าเว็บเฝ้าระวังการให้สารน้ำ ระบบ Smart IV Alert',
+  description: 'คู่มือเฉพาะหน้าเว็บ สำหรับพยาบาลวิชาชีพ หอผู้ป่วยอายุรกรรม โรงพยาบาลสูงเม่น จังหวัดแพร่',
   features: { updateFields: true },      // ให้ Word อัปเดตสารบัญเองตอนเปิดไฟล์
   styles: {
     default: {
@@ -109,16 +104,9 @@ const doc = new Document({
       },
       headers: { default: pageNumHeader() },
       children: [
-        ...c12.ch1.slice(1),                // ตัด PageBreak ตัวแรกของบทที่ ๑
-        ...c12.ch2,
-        ...c34.ch3,
-        ...cCal.chCalib,      // บทที่ ๔ การติดตั้งเซนเซอร์และการคาลิเบรต
-        ...c34.ch4,
-        ...c56.ch5,
-        ...c56.ch6,
-        ...ap.divider,
-        ...ap.apA, ...ap.apB, ...ap.apC, ...ap.apD, ...ap.apE, ...apEq.apF,
-        ...ap.refs,
+        ...W.ch1.slice(1),                  // ตัด PageBreak ตัวแรกของบทที่ ๑
+        ...W.ch2, ...W.ch3, ...W.ch4, ...W.ch5, ...W.ch6, ...W.ch7,
+        ...W.apA, ...W.apB, ...W.apC, ...W.apD,
       ],
     },
   ],

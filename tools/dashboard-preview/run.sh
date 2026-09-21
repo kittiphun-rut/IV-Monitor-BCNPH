@@ -1,14 +1,26 @@
 #!/usr/bin/env bash
-# สร้างไฟล์ HTML ของหน้า Dashboard พร้อมข้อมูลจำลอง แล้วถ่ายภาพหน้าจอด้วย Chromium
+# สร้างภาพหน้าจอของหน้าเว็บ Dashboard ครบทุกหน้า พร้อมข้อมูลจำลอง
+# ใช้: run.sh [โฟลเดอร์เฟิร์มแวร์] [โฟลเดอร์ผลลัพธ์]
 set -euo pipefail
 cd "$(dirname "$0")"
-SRC="${1:-../../firmware/ESP32-S3-Host-OLED-V_4_7_4}"
+SRC="${1:-../../firmware/ESP32-S3-Host-OLED-V_4_7_5}"
 OUT="${2:-../../docs/screens-dashboard}"
 mkdir -p "$OUT"
-python3 make_preview.py "$SRC" preview.html
 CHROME=/opt/pw-browsers/chromium-1194/chrome-linux/chrome
-"$CHROME" --headless --disable-gpu --no-sandbox --hide-scrollbars \
-  --virtual-time-budget=4000 --window-size=1400,2200 \
-  --screenshot="$OUT/live_monitor.png" "file://$PWD/preview.html" >/dev/null 2>&1
-rm -f preview.html
-echo "เสร็จแล้ว: $OUT/live_monitor.png"
+[ -x "$CHROME" ] || CHROME=/opt/pw-browsers/chromium/chrome-linux/chrome
+[ -x "$CHROME" ] || CHROME="$(command -v chromium || command -v chromium-browser)"
+
+shot() {   # shot <ชื่อหน้า> <ไฟล์ออก> <สูงพิกเซล>
+  python3 make_preview.py "$SRC" preview.html "$1"
+  "$CHROME" --headless --disable-gpu --no-sandbox --hide-scrollbars \
+    --virtual-time-budget=6000 --window-size=1400,"$3" \
+    --screenshot="$OUT/$2" "file://$PWD/preview.html" >/dev/null 2>&1
+  rm -f preview.html
+  echo "  $OUT/$2"
+}
+
+shot live   live_monitor.png 2400
+shot graphs visual_graphs.png 1500
+shot logs   log_report.png   1300
+shot about  about.png        1200
+echo "เสร็จแล้ว"
