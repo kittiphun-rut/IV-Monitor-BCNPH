@@ -21,7 +21,7 @@ const apEq = require('./part_equations.js');
 
 const { Document, Packer, Paragraph, TextRun, Header, Footer, PageNumber,
         AlignmentType, NumberFormat, convertInchesToTwip, LevelFormat,
-        TabStopType, LeaderType } = d;
+        TabStopType, LeaderType, LineRuleType } = d;
 const CONTENT_DXA = L.CONTENT_DXA;
 
 // สไตล์ของบรรทัดสารบัญ — สำคัญมาก
@@ -32,7 +32,7 @@ function tocStyle(id, name, indentInch, bold) {
     id, name, basedOn: 'Normal', next: 'Normal', quickFormat: false,
     run: { font: FONT, size: 32, bold },
     paragraph: {
-      spacing: { before: bold ? 120 : 0, after: 40, line: 300 },
+      spacing: { before: bold ? 120 : 0, after: 40, line: 240, lineRule: LineRuleType.AUTO },
       indent: { left: convertInchesToTwip(indentInch) },
       tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_DXA, leader: LeaderType.DOT }],
     },
@@ -66,7 +66,7 @@ const doc = new Document({
   features: { updateFields: true },      // ให้ Word อัปเดตสารบัญเองตอนเปิดไฟล์
   styles: {
     default: {
-      document: { run: { font: FONT, size: 32 }, paragraph: { spacing: { line: 276 } } },
+      document: { run: { font: FONT, size: 32 }, paragraph: { spacing: { line: 240, lineRule: LineRuleType.AUTO } } },
       heading1: { run: { font: FONT, size: 40, bold: true, color: '000000' } },
       heading2: { run: { font: FONT, size: 36, bold: true, color: '000000' } },
       heading3: { run: { font: FONT, size: 32, bold: true, color: '000000' } },
@@ -75,10 +75,10 @@ const doc = new Document({
       // สไตล์ของคำบรรยาย ใช้เป็น "ที่หมาย" ให้ฟิลด์สารบัญตาราง/สารบัญภาพเก็บรายการเอง
       { id: 'CaptionTable', name: 'Caption Table', basedOn: 'Normal', next: 'Normal',
         run: { font: FONT, size: 30, bold: true },
-        paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 120, after: 100, line: 288 } } },
+        paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 120, after: 100, line: 260, lineRule: LineRuleType.AUTO } } },
       { id: 'CaptionFigure', name: 'Caption Figure', basedOn: 'Normal', next: 'Normal',
         run: { font: FONT, size: 28 },
-        paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 60, after: 160, line: 288 } } },
+        paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 60, after: 160, line: 260, lineRule: LineRuleType.AUTO } } },
       tocStyle('TOC1', 'toc 1', 0,    true),    // ชื่อบท / ภาคผนวก
       tocStyle('TOC2', 'toc 2', 0.35, false),   // หัวข้อย่อย
       tocStyle('TOC3', 'toc 3', 0,    false),   // รายการตารางและภาพ

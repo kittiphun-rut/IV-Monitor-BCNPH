@@ -38,7 +38,10 @@ function runsFrom(text, o = {}) {
 function p(text, o = {}) {
   return new Paragraph({
     alignment: o.align || AlignmentType.THAI_DISTRIBUTE,
-    spacing: { after: o.after === undefined ? 60 : o.after, line: o.line || 300 },
+    // lineRule ต้องเป็น AUTO เสมอ มิฉะนั้นระยะบรรทัดจะถูกตรึงเป็นค่าคงที่
+    // ซึ่งเล็กกว่าความสูงจริงของ TH SarabunPSK ทำให้สระบนและวรรณยุกต์ถูกตัด
+    spacing: { after: o.after === undefined ? 60 : o.after,
+               line: o.line || 240, lineRule: d.LineRuleType.AUTO },
     indent: o.indent === undefined ? { firstLine: convertInchesToTwip(0.4) } : o.indent,
     children: runsFrom(text, o),
   });
@@ -47,7 +50,10 @@ function p(text, o = {}) {
 function plain(text, o = {}) {
   return new Paragraph({
     alignment: o.align || AlignmentType.LEFT,
-    spacing: { after: o.after === undefined ? 60 : o.after, line: o.line || 300 },
+    // lineRule ต้องเป็น AUTO เสมอ มิฉะนั้นระยะบรรทัดจะถูกตรึงเป็นค่าคงที่
+    // ซึ่งเล็กกว่าความสูงจริงของ TH SarabunPSK ทำให้สระบนและวรรณยุกต์ถูกตัด
+    spacing: { after: o.after === undefined ? 60 : o.after,
+               line: o.line || 240, lineRule: d.LineRuleType.AUTO },
     indent: o.indent,
     children: runsFrom(text, o),
   });
@@ -65,7 +71,7 @@ function eq(text, no, o = {}) {
   return new Paragraph({
     alignment: AlignmentType.LEFT,
     spacing: { before: o.before === undefined ? 140 : o.before,
-               after:  o.after  === undefined ? 140 : o.after, line: 300 },
+               after:  o.after  === undefined ? 140 : o.after, line: 240, lineRule: d.LineRuleType.AUTO },
     tabStops: [
       { type: d.TabStopType.CENTER, position: Math.round(CONTENT_DXA / 2) },
       { type: d.TabStopType.RIGHT,  position: CONTENT_DXA },
@@ -78,7 +84,7 @@ function eq(text, no, o = {}) {
 function eqWhere(lines) {
   return lines.map((t, i) => new Paragraph({
     alignment: AlignmentType.LEFT,
-    spacing: { after: i === lines.length - 1 ? 140 : 40, line: 300 },
+    spacing: { after: i === lines.length - 1 ? 140 : 40, line: 240, lineRule: d.LineRuleType.AUTO },
     indent: { left: convertInchesToTwip(1.0), hanging: convertInchesToTwip(0.45) },
     children: runsFrom(t),
   }));
@@ -94,7 +100,7 @@ function chapter(no, title) {
       alignment: AlignmentType.CENTER, heading: HeadingLevel.HEADING_1,
       // ระยะบรรทัดต้องมากกว่าขนาดตัวอักษร (20pt) มิฉะนั้นสองบรรทัดของหัวบทจะซ้อนกัน
       // เห็นชัดเมื่อชื่อบทมีตัวอักษรละตินซึ่งสูงกว่าตัวอักษรไทย
-      spacing: { before: 240, after: 240, line: 480 },
+      spacing: { before: 240, after: 240, line: 320, lineRule: d.LineRuleType.AUTO },
       children: [
         run('บทที่ ' + no + ' ', { bold: true, size: 40 }),
         new TextRun({ text: title, font: FONT, size: 40, bold: true, break: 1 }),
@@ -121,7 +127,7 @@ function h3(text) {
 // รายการลำดับด้วยมือ (คุมรูปแบบได้แน่นอนกว่า numbering config)
 function item(marker, text, o = {}) {
   return new Paragraph({
-    spacing: { after: o.after === undefined ? 40 : o.after, line: 300 },
+    spacing: { after: o.after === undefined ? 40 : o.after, line: 240, lineRule: d.LineRuleType.AUTO },
     indent: { left: convertInchesToTwip(o.level ? 0.95 : 0.6), hanging: convertInchesToTwip(0.35) },
     children: [run(marker + '\t', o), ...runsFrom(text, o)],
     tabStops: [{ type: d.TabStopType.LEFT, position: convertInchesToTwip(o.level ? 0.95 : 0.6) }],
@@ -139,7 +145,7 @@ function cell(text, o = {}) {
       .flatMap((t) => String(t).split('\n'))
       .map((t) => new Paragraph({
         alignment: o.align || AlignmentType.LEFT,
-        spacing: { after: 0, line: 288 },
+        spacing: { after: 0, line: 260, lineRule: d.LineRuleType.AUTO },
         children: [run(t, { bold: o.bold, size: o.size || 30 })],
       })),
   });
@@ -168,7 +174,7 @@ function table(cols, rows, o = {}) {
 function caption(text) {
   return new Paragraph({
     style: 'CaptionFigure',
-    alignment: AlignmentType.CENTER, spacing: { before: 60, after: 160, line: 288 },
+    alignment: AlignmentType.CENTER, spacing: { before: 60, after: 160, line: 260, lineRule: d.LineRuleType.AUTO },
     children: [run(text, { size: 28 })],
   });
 }
@@ -177,7 +183,7 @@ function caption(text) {
 function tableCaption(text) {
   return new Paragraph({
     style: 'CaptionTable',
-    alignment: AlignmentType.CENTER, spacing: { before: 120, after: 100, line: 288 },
+    alignment: AlignmentType.CENTER, spacing: { before: 120, after: 100, line: 260, lineRule: d.LineRuleType.AUTO },
     children: [run(text, { bold: true, size: 30 })],
   });
 }
@@ -219,7 +225,7 @@ function imgPair(a, b, w, h) {
 function toc(text, page, o = {}) {
   const left = convertInchesToTwip(o.level ? 0.35 * o.level : 0);
   return new Paragraph({
-    spacing: { after: 40, line: 300 },
+    spacing: { after: 40, line: 240, lineRule: d.LineRuleType.AUTO },
     indent: { left },
     tabStops: [{ type: d.TabStopType.RIGHT, position: CONTENT_DXA, leader: d.LeaderType.DOT }],
     children: [run(text, { bold: o.bold }),
@@ -243,7 +249,7 @@ function noteBox(title, lines, fill = 'FFF2CC', border = 'BF8F00') {
       children: [
         new Paragraph({ spacing: { after: 60 }, children: [run(title, { bold: true })] }),
         ...lines.map((l) => new Paragraph({
-          spacing: { after: 40, line: 300 },
+          spacing: { after: 40, line: 240, lineRule: d.LineRuleType.AUTO },
           indent: { left: convertInchesToTwip(0.25), hanging: convertInchesToTwip(0.25) },
           children: [run(l)] })),
       ],

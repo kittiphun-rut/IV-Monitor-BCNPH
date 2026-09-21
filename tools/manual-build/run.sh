@@ -14,6 +14,9 @@ TXT="${OUT%.docx}.txt"
 
 [ -d node_modules ] || npm install docx --no-audit --no-fund >/dev/null
 
+# ต้องมีฟอนต์ TH Sarabun ก่อน มิฉะนั้น PDF จะถูกแทนด้วยฟอนต์อื่นที่ผิดรูปแบบราชการ
+fc-list :lang=th family 2>/dev/null | grep -q 'TH Sarabun' || bash install_fonts.sh
+
 python3 make_images.py >/dev/null
 
 build() {                       # สร้าง .docx แล้วแปลงสัญลักษณ์เป็นฟิลด์ TOC จริง

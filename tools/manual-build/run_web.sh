@@ -14,6 +14,9 @@ TXT="${OUT%.docx}.txt"
 
 [ -d node_modules ] || npm install docx --no-audit --no-fund >/dev/null
 
+# ต้องมีฟอนต์ TH Sarabun ก่อน มิฉะนั้น PDF จะถูกแทนด้วยฟอนต์อื่นที่ผิดรูปแบบราชการ
+fc-list :lang=th family 2>/dev/null | grep -q 'TH Sarabun' || bash install_fonts.sh
+
 bash ../dashboard-preview/run.sh >/dev/null
 python3 crop_web_images.py >/dev/null
 
