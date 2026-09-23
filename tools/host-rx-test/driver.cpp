@@ -39,7 +39,7 @@ int esp_wifi_get_channel(uint8_t* p,wifi_second_chan_t*){ *p=1; return 0; }
 void emitMark(const char*){}
 
 bool getLocalTime(struct tm* info, unsigned long){
-  time_t t; time(&t); struct tm* g = localtime(&t); if (!g) return false; *info = *g; return true;
+  time_t t = previewNow(); struct tm* g = localtime(&t); if (!g) return false; *info = *g; return true;
 }
 void rtc_gpio_pullup_en(int){} void rtc_gpio_pulldown_dis(int){} void rtc_gpio_deinit(int){}
 int  esp_sleep_enable_ext0_wakeup(int,int){ return 0; }

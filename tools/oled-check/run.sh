@@ -8,8 +8,10 @@ SKETCH_DIR="${1:-../../firmware/Host-OLED}"
 NAME="$(basename "$SKETCH_DIR")"
 
 cp "$SKETCH_DIR/$NAME.ino" host_oled.cpp
-cp "$SKETCH_DIR/web_dashboard.h" web_dashboard.h
+# คัดลอกไฟล์ .h ทุกตัวของสเก็ตช์ ไม่ใช่แค่ web_dashboard.h
+# เพราะโค้ดวาดจอถูกแยกไปอยู่ HostScreen.h / StationScreen.h แล้ว
+for h in "$SKETCH_DIR"/*.h; do [ -e "$h" ] && cp "$h" "$(basename "$h")"; done
 g++ -std=gnu++17 -I../screen-preview -I. -DESP_ARDUINO_VERSION_MAJOR=3 \
     -Wall -Wno-unused-variable -Wno-format-truncation -fsyntax-only driver.cpp
-rm -f host_oled.cpp web_dashboard.h
+rm -f host_oled.cpp web_dashboard.h HostScreen.h
 echo "คอมไพล์ผ่าน: $NAME"

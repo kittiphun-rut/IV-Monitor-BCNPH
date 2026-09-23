@@ -35,7 +35,7 @@ int esp_wifi_set_ps(int){return 0;}
 esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause(){return ESP_SLEEP_WAKEUP_UNDEFINED;}
 int esp_sleep_enable_ext0_wakeup(int,int){return 0;}
 void esp_deep_sleep_start(){}
-bool getLocalTime(struct tm* t, unsigned long){ time_t n=time(NULL); *t=*localtime(&n); return n>1600000000; }
+bool getLocalTime(struct tm* t, unsigned long){ time_t n=previewNow(); *t=*localtime(&n); return n>1600000000; }
 void rtc_gpio_deinit(gpio_num_t){} void rtc_gpio_pullup_en(gpio_num_t){} void rtc_gpio_pulldown_dis(gpio_num_t){}
 void emitMark(const char* n){ fprintf(g_ops,"MARK %s\n",n); }
 #include "host.cpp"

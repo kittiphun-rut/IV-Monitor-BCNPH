@@ -41,6 +41,7 @@ release/11-s7.7.2-h4.7.3-lts7.5.3
 release/12-s7.7.2-h4.7.4       
 release/13-s7.7.3-h4.7.5-lts7.5.4 
 release/14-s7.7.3-h4.7.5-touch4.9.2 
+release/15-s7.7.3-h4.7.6       
 ```
 
 > **branch เหล่านี้ห้ามแก้และห้าม push ทับ** ให้ถือเป็นหมุดเวลาอย่างเดียว
@@ -69,9 +70,12 @@ release/14-s7.7.3-h4.7.5-touch4.9.2
 | `release/12-s7.7.2-h4.7.4` | 7.7.2 | 7.5.3 | 4.7.4 | 4.8.0 | 4.9.0 | ❔ | [zip](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/archive/refs/heads/release/12-s7.7.2-h4.7.4.zip) | [`ea20bb9`](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/tree/ea20bb9b2056d3e375842852c4df93927f03b565) | Host v4.7.4: ตรวจจับเลขเตียงซ้ำ + จอ OLED ที่อ่านง่ายขึ้น<br><sub>20/9/2026</sub> |
 | `release/13-s7.7.3-h4.7.5-lts7.5.4` | 7.7.3 | 7.5.4 | 4.7.5 | 4.8.0 | 4.9.0 | ❔ | [zip](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/archive/refs/heads/release/13-s7.7.3-h4.7.5-lts7.5.4.zip) | [`35ce57b`](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/tree/35ce57b99d51794fc28af44b2b59410ef8549180) | แก้สูตรคำนวณอัตราการไหลและบั๊กฝั่ง Host (Station 7.7.3/7.5.4, Host 4.7.5)<br><sub>12/9/2026</sub> |
 | `release/14-s7.7.3-h4.7.5-touch4.9.2` | 7.7.3 | 7.5.4 | 4.7.5 | 4.8.0 | 4.9.2 | ❔ | [zip](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/archive/refs/heads/release/14-s7.7.3-h4.7.5-touch4.9.2.zip) | [`8fdd598`](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/tree/8fdd598949b176f7e87b95b8bc019397581d9f64) | พอร์ตคุณสมบัติทั้งหมดจากรุ่นจอ OLED ลงรุ่นจอสัมผัส (Touch v4.9.2)<br><sub>23/9/2026</sub> |
+| `release/15-s7.7.3-h4.7.6` | 7.7.3 | 7.5.4 | **4.7.6** | 4.8.0 | 4.9.2 | ✅ | [zip](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/archive/refs/heads/release/15-s7.7.3-h4.7.6.zip) | [`ae0d061`](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/tree/ae0d061bd8abee1b0439f1e515dd912d57e068eb) | **นำการเชื่อมต่อเราเตอร์กลับมา** เกาะ Wi-Fi โรงพยาบาลเป็นหลักแล้วปิด AP เพื่อลดภาระซีพียู ต่อไม่ได้เปิด AP สำรองเอง · ปล่อยให้ ESP-NOW ใช้ช่องของเราเตอร์ (Station ไล่หาช่องเอง) · ค้นหาเครือข่ายแบบไม่บล็อก · หน้าเว็บปรับจังหวะรีเฟรชตามจำนวนผู้ใช้<br><sub>23/9/2026</sub> |
 
-**คอลัมน์คอมไพล์** ❔ หมายถึงยังไม่ได้ตรวจย้อนหลัง ชุดตรวจ ๙ ตัวใน `tools/`
-รันผ่านครบบน `main` ปัจจุบัน แต่ยังไม่ได้ไล่คอมไพล์ทุกรุ่นย้อนหลังทีละรุ่น
+**คอลัมน์คอมไพล์**
+✅ = ชุดตรวจ ๙ ตัวใน `tools/` รันผ่านครบ ณ commit นั้น (คอมไพล์ด้วย g++ พร้อมตัวจำลอง
+Arduino บน PC ไม่ใช่ Arduino IDE จริง) และเรนเดอร์หน้าเว็บด้วย Chromium จริงแล้ว
+❔ = ยังไม่ได้ไล่ตรวจย้อนหลังทีละรุ่น
 
 ## ข้อควรทราบเรื่องโครงไฟล์ของรุ่นเก่า
 
