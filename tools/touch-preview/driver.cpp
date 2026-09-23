@@ -53,6 +53,13 @@ static void setBed(int i, const char* name, float rate, float target, float infu
   s.cfg.targetRateHr = target;
   s.cfg.planVolumeMl = plan;
   s.cfg.dropFactor = 20;
+  // ค่าที่เพิ่มใน 4.9.2 — ต้องป้อนด้วย ไม่งั้นภาพตัวอย่างจะขึ้น LINK 0% และ MAC เป็นขีด
+  s.linkPct = online ? 100 : 0;
+  s.macKnown = online;
+  s.srcMac[3] = 0x28; s.srcMac[4] = 0xAB; s.srcMac[5] = (uint8_t)(0x10 + i);
+  s.totalDrops = (uint32_t)(infused * 20);
+  s.firstRecvTime = online ? g_millis : 0;
+  s.lastDropAtMs  = (online && running && rate > 0) ? (g_millis - 300) : 0;
   snprintf(s.cfg.patientName, sizeof(s.cfg.patientName), "%s", name);
 }
 
