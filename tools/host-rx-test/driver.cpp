@@ -47,6 +47,16 @@ esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause(){ return (esp_sleep_wakeup_
 int  esp_now_deinit(){ return 0; }
 int  esp_wifi_set_ps(int){ return 0; }
 
+// เฟิร์มแวร์รุ่นจอสัมผัสใช้ไลบรารีทัชด้วย ต้องนิยามตัวแปร static ให้ลิงก์ผ่าน
+// รุ่นจอ OLED ไม่ได้ใช้ ประกาศทิ้งไว้ก็ไม่กระทบ
+// ฟังก์ชัน PWM ของไฟหน้าจอ ใช้เฉพาะรุ่นจอสัมผัส
+bool ledcAttach(int,int,int) { return true; }
+void ledcWrite(int,int) {}
+
+#include "XPT2046_Touchscreen.h"
+bool XPT2046_Touchscreen::g_touched = false;
+TS_Point XPT2046_Touchscreen::g_point;
+
 #include "host_oled.cpp"   // สำเนาของ .ino ที่ run.sh คัดลอกมาให้
 
 // ---- สร้างแพ็กเก็ตเสมือนจาก Station หนึ่งตัว ----
