@@ -14,4 +14,5 @@ typedef void (*esp_now_recv_cb_t)(const esp_now_recv_info_t*, const uint8_t*, in
 int esp_now_init(); int esp_now_deinit();
 int esp_now_register_recv_cb(esp_now_recv_cb_t);
 int esp_now_add_peer(const esp_now_peer_info_t*);
+int esp_now_del_peer(const uint8_t*);
 int esp_now_send(const uint8_t*, const uint8_t*, int);

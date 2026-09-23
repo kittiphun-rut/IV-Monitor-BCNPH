@@ -33,6 +33,7 @@ long map(long x,long a,long b,long c,long d){return (x-a)*(d-c)/(b-a)+c;}
 int esp_now_init(){return 0;}
 int esp_now_register_recv_cb(esp_now_recv_cb_t){return 0;}
 int esp_now_add_peer(const esp_now_peer_info_t*){return 0;}
+int esp_now_del_peer(const uint8_t*){return 0;}
 int esp_now_send(const uint8_t*,const uint8_t*,int){return 0;}
 int esp_wifi_set_channel(uint8_t,wifi_second_chan_t){return 0;}
 int esp_wifi_get_channel(uint8_t* p,wifi_second_chan_t*){ *p=1; return 0; }

@@ -39,8 +39,10 @@ MOCK = """
     caseActive:true, caseStart:'18/09/2569 08:30'
   }));
   const data = {
-    version:'4.7.5-OLED', activeCount:beds.length, currentTime:'18/09/2569 09:15:20',
-    timeSynced:true, timeApprox:false, apClients:2, apMaxClients:8, channel:1,
+    version:'4.7.6-OLED', activeCount:beds.length, currentTime:'18/09/2569 09:15:20',
+    timeSynced:true, timeApprox:false, apClients:2, apMaxClients:8, channel:6,
+    // v4.7.6: ฟิลด์ของโหมดเครือข่ายและจังหวะ poll ต้องตรงกับที่ handleApiData ส่งจริง
+    pollMs:1000, netMode:'ROUTER', netIP:'192.168.1.42', staRssi:-58,
     hostBatVolts:4.05, hostBatPct:92, snoozed:false, linkWeakPct:60, syncFail:0, heardBeyond:0, stations
   };
   // ประวัติ 60 นาทีแบบสมจริง ใช้ให้กราฟและตารางในคู่มือมีข้อมูลให้ดู
@@ -69,8 +71,12 @@ MOCK = """
     if (String(url).includes('/api/data')) body = data;
     else if (String(url).includes('/api/logs')) body = logs;
     else if (String(url).includes('/api/ap/status'))
-      body = { ssid:'ESP32_Liquid_Monitor', password:'12345678', apIP:'192.168.4.1',
-               channel:1, clients:2, maxClients:8, currentTime:data.currentTime };
+      body = { mode:'ROUTER', ip:'192.168.1.42', staSsid:'WARD-WIFI', staConfigured:true, staRssi:-58,
+               ssid:'ESP32_Liquid_Monitor', password:'12345678', apIP:'192.168.4.1',
+               channel:6, clients:2, maxClients:8, currentTime:data.currentTime };
+    else if (String(url).includes('/api/wifi/scan'))
+      body = { scanning:false, nets:[ {ssid:'WARD-WIFI',rssi:-52,lock:true},
+                                      {ssid:'HOSPITAL-GUEST',rssi:-71,lock:false} ] };
     return Promise.resolve({ ok:true, json:() => Promise.resolve(body), text:() => Promise.resolve('') });
   };
   // ปิดเสียงในโหมดพรีวิว
@@ -86,9 +92,18 @@ MOCK = """
 """
 html = html.replace("<script>", MOCK + "<script>", 1)
 
-# เลือกหน้าที่จะถ่ายภาพ ส่งมาทาง argv[3] (live | graphs | logs | about)
+# เลือกหน้าที่จะถ่ายภาพ ส่งมาทาง argv[3] (live | graphs | logs | about | wifi)
 TAB = sys.argv[3] if len(sys.argv) > 3 else "live"
-if TAB != "live":
+if TAB == "wifi":
+    # เปิดกล่อง "จุดเชื่อมต่อ" แล้วสั่งค้นหาเครือข่าย เพื่อถ่ายหน้าตั้งค่าเราเตอร์
+    html = html.replace("</body>", """
+<script>
+  window.addEventListener('load', function () {
+    setTimeout(function () { openApModal(); scanWifi(); }, 900);
+  });
+</script>
+</body>""", 1)
+elif TAB != "live":
     html = html.replace("</body>", """
 <script>
   window.addEventListener('load', function () {
