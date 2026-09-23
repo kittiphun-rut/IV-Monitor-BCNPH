@@ -39,6 +39,15 @@ firmware/
 และที่นิยาม เพราะ C++ อนุญาตแค่ที่เดียว ตรวจทั้งสองข้อด้วย
 `bash tools/split-check/run.sh` ซึ่งยกมาจากโครงการ MCUPR-CANTEEN
 
+### มาตรฐานคอมเมนต์
+
+ทุกไฟล์ `.ino` และ `.h` ใน `firmware/` ต้องมีหัวไฟล์แบบ Doxygen พร้อมตารางประวัติ
+การแก้ไข และใช้ป้าย `// [เวอร์ชัน] เพิ่ม/แก้/ย้าย:` ในเนื้อโค้ดตรงจุดที่เปลี่ยน
+
+รายละเอียดทั้งหมดอยู่ที่ [`docs/CODE-STANDARD.md`](docs/CODE-STANDARD.md)
+ตรวจด้วย `bash tools/header-check/run.sh` ซึ่งยกมาจากโครงการ MCUPR-CANTEEN
+เช่นเดียวกับตัวมาตรฐาน เพื่อให้ทั้งสองโครงการอ่านเหมือนกัน
+
 ### การพิสูจน์ว่าแก้แล้วพฤติกรรมไม่เปลี่ยน
 
 ตัวจำลองหน้าจอบน PC ตรึงนาฬิกาไว้แล้ว (ดู `previewNow()` ใน
@@ -118,6 +127,7 @@ git push -u origin release/15-s7.8.0-h4.7.5
 
 ```bash
 python3 tools/check-ino-types.py        # ลำดับการประกาศชนิดข้อมูลของ Arduino
+bash tools/header-check/run.sh           # หัวไฟล์ Doxygen และป้ายเวอร์ชันตามมาตรฐาน
 bash tools/split-check/run.sh            # การแยกโค้ดวาดจอไปไฟล์ .h ไม่ทำให้ลำดับพัง
 bash tools/protocol-test/run.sh         # โครงสร้างแพ็กเก็ตตรงกันทุกรุ่น
 bash tools/detector-test/run.sh         # อัลกอริทึมตรวจจับหยด
