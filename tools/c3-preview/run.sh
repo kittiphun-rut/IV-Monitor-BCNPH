@@ -17,5 +17,6 @@ g++ -std=gnu++17 -I../screen-preview -I. -DESP_ARDUINO_VERSION_MAJOR=3 \
     -Wall -Wno-unused-variable -Wno-format-truncation -o c3preview driver.cpp
 ./c3preview ops.txt
 OLED_W=72 OLED_H=40 python3 ../oled-preview/render_oled.py ops.txt "$OUT" 8
+python3 make_overview.py "$OUT"
 rm -f station_c3.cpp StationScreen.h drop_detector.h c3preview ops.txt
 echo "เสร็จแล้ว: ภาพอยู่ใน $OUT"

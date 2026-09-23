@@ -126,6 +126,19 @@ int main(int argc, char** argv) {
   idleFor(600); lastHostSyncTime = millis();
   drawScreen(); emitMark("04_rate_drip_low");
 
+  // ---- เฟรมภาพเคลื่อนไหวหนึ่งรอบหยดเต็ม ๆ เอาไปต่อเป็น GIF ----
+  // ที่ 100 mL/h กับ drop factor 20 คือ 1800 ms ต่อหยด แบ่งเป็น 12 เฟรม
+  {
+    char nm[32];
+    for (int f = 0; f < 12; f++) {
+      lastHostSyncTime = millis();
+      drawScreen();
+      snprintf(nm, sizeof(nm), "anim_drip_%02d", f);
+      emitMark(nm);
+      idleFor(150);
+    }
+  }
+
   // ---- อัตราไหลต่ำ แสดงทศนิยมหนึ่งตำแหน่ง ----
   float keepRate = currentFlowRate_ml_hr;
   currentFlowRate_ml_hr = 9.5f;
