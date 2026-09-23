@@ -1,7 +1,7 @@
 /**
  * @file      Station.ino
  * @brief     เฟิร์มแวร์เครื่องประจำเตียง สายหลัก นับหยดสารน้ำและส่งให้เครื่องส่วนกลาง
- * @version   7.8.0
+ * @version   7.9.0
  * @date      2026-09-23
  * @author    นายกิตติพันธ์ รัตนคร <kittiphun.rut@mcu.ac.th>
  *
@@ -23,6 +23,7 @@
  * @par Revision History
  * | Version | Date | Change |
  * |---|---|---|
+ * | 7.9.0 | 2026-09-23 | จำนวนหยดสะสมรอดการรีบูตและไฟดับแล้ว เพิ่มสุนัขเฝ้าบ้าน และแก้การนับเวลาที่พังเมื่อ millis() วนรอบ |
  * | 7.8.0 | 2026-09-23 | ย้ายโค้ดวาดจอออกไปไว้ที่ `StationScreen.h` ตรรกะไม่เปลี่ยนแม้แต่บรรทัดเดียว |
  * | 7.7.3 | 2026-09-12 | แก้สูตรอัตราการไหลเป็นหน้าต่างสะสม 8 หยด ตัดความลำเอียงของการเฉลี่ยส่วนกลับ |
  * | 7.7.2 | 2026-09-12 | สุ่มจังหวะส่งข้อมูล แก้อาการ Host ขึ้น OFFLINE เมื่อมีหลายเตียงพร้อมกัน |
@@ -197,10 +198,24 @@
 #include <SPI.h>
 #include <time.h>
 #include <sys/time.h>
+#include <esp_task_wdt.h>          // [7.9.0] เพิ่ม: สุนัขเฝ้าบ้าน กันเครื่องค้างเงียบ
+#include <esp_system.h>            // [7.9.0] เพิ่ม: อ่านสาเหตุการรีบูตครั้งล่าสุด
+
+// ----------------------------------------------------------------------------
+// สุนัขเฝ้าบ้านและสาเหตุการรีบูต ([7.9.0] เพิ่มทั้งหมด)
+//
+// เครื่องนี้ทำหน้าที่เตือนภัย การค้างแบบเงียบจึงอันตรายกว่าการรีบูต เพราะจอยัง
+// ค้างภาพเดิมไว้ พยาบาลจึงเข้าใจว่าระบบยังเฝ้าอยู่ ทั้งที่หยุดไปแล้ว
+// ตั้งไว้ 8 วินาที ซึ่งยาวกว่ารอบ loop() ปกติหลายเท่า จึงไม่รีบูตเพราะงานหนักชั่วคราว
+// ----------------------------------------------------------------------------
+#define LOOP_WDT_TIMEOUT_S      8
+
+esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
+
 
 #include "drop_detector.h"   // อัลกอริทึมตรวจจับหยด (ทดสอบบน PC ได้: tools/detector-test)
 
-#define APP_VERSION         "7.8.0"
+#define APP_VERSION         "7.9.0"
 
 #define TFT_CS              9
 #define TFT_DC              10
@@ -448,6 +463,112 @@ void updateTrendAccumulator(unsigned long now);
 // ----------------------------------------------------------------------------
 // ฟังก์ชันช่วย
 // ----------------------------------------------------------------------------
+// เรียกได้ทุกที่ รวมถึงก่อนสมัครสมาชิก — ถ้ายังไม่ได้สมัครจะคืนค่าผิดพลาดเฉย ๆ
+inline void feedWatchdog() {
+  esp_task_wdt_reset();
+}
+
+void setupLoopWatchdog() {
+#if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  esp_task_wdt_config_t wdtCfg = {};
+  wdtCfg.timeout_ms     = LOOP_WDT_TIMEOUT_S * 1000;
+  wdtCfg.idle_core_mask = 0;            // ไม่เฝ้างานว่าง เฝ้าเฉพาะ loop() ของเรา
+  wdtCfg.trigger_panic  = true;         // ค้างจริง = รีบูต ดีกว่าค้างเงียบต่อไป
+  // core 3.x เปิดตัวเฝ้าไว้ให้แล้วในบางการตั้งค่า จึงต้องเผื่อทางตั้งค่าใหม่ด้วย
+  if (esp_task_wdt_init(&wdtCfg) == ESP_ERR_INVALID_STATE) esp_task_wdt_reconfigure(&wdtCfg);
+#else
+  esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
+#endif
+  esp_task_wdt_add(NULL);
+}
+
+// ปิดการเฝ้าก่อนเข้าโหมดหลับ มิฉะนั้นการรอให้ปล่อยปุ่มจะถูกนับว่าค้าง
+void stopLoopWatchdog() {
+  esp_task_wdt_delete(NULL);
+}
+
+// ข้อความสั้น ๆ ไว้แสดงในหน้าเว็บและใน Serial เพื่อให้ตามรอยปัญหาในวอร์ดจริงได้
+const char* resetReasonText(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON:  return "power-on";
+    case ESP_RST_EXT:      return "external";
+    case ESP_RST_SW:       return "software";
+    case ESP_RST_PANIC:    return "panic";
+    case ESP_RST_INT_WDT:  return "int-wdt";
+    case ESP_RST_TASK_WDT: return "task-wdt";
+    case ESP_RST_WDT:      return "other-wdt";
+    case ESP_RST_DEEPSLEEP:return "deep-sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO:     return "sdio";
+    default:               return "unknown";
+  }
+}
+
+// ----------------------------------------------------------------------------
+// เก็บจำนวนหยดสะสมให้รอดการรีบูต ([7.9.0] เพิ่มทั้งหมด)
+//
+// เดิมตัวนับอยู่ใน RAM อย่างเดียว ไฟตกครึ่งวินาทีเดียวก็กลับเป็นศูนย์ ตัวเลข
+// "ให้ไปแล้วกี่ mL" จึงผิดไปทั้งถุง และการเตือนใกล้หมด/ให้ครบตามแผนจะมาช้ากว่า
+// ความจริงเท่ากับปริมาตรที่หายไป ซึ่งมีผลกับผู้ป่วยโดยตรง
+//
+// เก็บสองชั้นเพราะข้อจำกัดคนละแบบ
+//   RTC — เขียนได้ไม่จำกัด จึงเขียนทุกรอบ รอดรีเซ็ตซอฟต์แวร์ วอตช์ด็อก ไฟตกชั่วขณะ
+//   NVS — รอดไฟดับสนิท แต่แฟลชมีอายุการเขียนจำกัด จึงเขียนห่าง ๆ ทุก 5 นาที
+// ตอนบูตใช้ค่าที่มากกว่าของสองชั้น และต้องเป็นของเตียงเดียวกันเท่านั้น
+// ----------------------------------------------------------------------------
+#define TALLY_NVS_SAVE_MS   300000UL
+#define TALLY_RTC_MAGIC     0x49565431UL      // 'IVT1' ลายเซ็นบอกว่าค่าใน RTC ใช้ได้
+
+RTC_DATA_ATTR uint32_t rtcTallyMagic = 0;
+RTC_DATA_ATTR uint32_t rtcTallyDrops = 0;
+RTC_DATA_ATTR uint32_t rtcTallyBed   = 0;
+
+uint32_t      tallySavedToNvs   = 0;
+unsigned long tallyNextNvsSave  = 0;
+bool          tallyRestoredBoot = false;      // บูตนี้กู้ยอดเก่ากลับมา (ไว้บอกพยาบาล)
+
+void tallyRemember(uint32_t drops, uint8_t bed) {
+  rtcTallyMagic = TALLY_RTC_MAGIC;
+  rtcTallyDrops = drops;
+  rtcTallyBed   = bed;
+}
+
+void tallyWriteNvs(uint32_t drops, uint8_t bed) {
+  stationPrefs.begin("st_tally", false);
+  stationPrefs.putUInt("drops", drops);
+  stationPrefs.putUChar("bed", bed);
+  stationPrefs.end();
+  tallySavedToNvs = drops;
+}
+
+// เริ่มถุงใหม่ = ล้างทั้งสองชั้นทันที ไม่งั้นบูตครั้งหน้าจะกู้ยอดของถุงเก่ากลับมา
+void tallyClear(uint8_t bed) {
+  tallyRemember(0, bed);
+  tallyWriteNvs(0, bed);
+  tallyRestoredBoot = false;
+}
+
+uint32_t tallyRestore(uint8_t bed) {
+  uint32_t best = 0;
+  if (rtcTallyMagic == TALLY_RTC_MAGIC && rtcTallyBed == bed) best = rtcTallyDrops;
+  stationPrefs.begin("st_tally", true);
+  uint32_t nv    = stationPrefs.getUInt("drops", 0);
+  uint8_t  nvBed = stationPrefs.getUChar("bed", 0);
+  stationPrefs.end();
+  if (nvBed == bed && nv > best) best = nv;      // RTC หายเพราะไฟดับสนิท จึงถอยมาใช้ NVS
+  tallySavedToNvs   = best;
+  tallyRestoredBoot = (best > 0);
+  tallyNextNvsSave  = millis() + TALLY_NVS_SAVE_MS;
+  return best;
+}
+
+void serviceTallySave(unsigned long now, uint32_t drops, uint8_t bed) {
+  tallyRemember(drops, bed);                     // ชั้นเร็ว ไม่กินอายุแฟลช
+  if ((long)(now - tallyNextNvsSave) < 0) return;
+  tallyNextNvsSave = now + TALLY_NVS_SAVE_MS;
+  if (drops != tallySavedToNvs) tallyWriteNvs(drops, bed);
+}
+
 uint8_t safeDropFactor(uint8_t df) {
   return (df == 10 || df == 15 || df == 20 || df == 60) ? df : 20;
 }
@@ -895,6 +1016,7 @@ void executeButtonCalibrationWizard() {
   uint32_t dropsAtEntry = det().drops;
 
   while (digitalRead(BTN_PIN) == HIGH) {
+      feedWatchdog();
     serviceDropSensor(false);
     scopePush(det().edge);
 
@@ -924,7 +1046,7 @@ void executeButtonCalibrationWizard() {
   }
 
   modalSafeBeep(2400, 40);
-  while (digitalRead(BTN_PIN) == LOW) delay(10);
+  while (digitalRead(BTN_PIN) == LOW) { feedWatchdog(); delay(10); }
   delay(60);
 
   saveLearning();
@@ -979,6 +1101,7 @@ void OnTimeSyncRecv(const uint8_t *mac, const uint8_t *incomingDataBytes, int le
 void applyCounterReset() {
   pendingCounterReset = false;
   totalDrops = 0;
+  tallyClear(currentStationId);   // [7.9.0] เพิ่ม: เริ่มถุงใหม่ = ล้างยอดที่เก็บไว้ด้วย
   periodDropsCounter = 0;
   totalVolumeMl = 0;
   currentFlowRate_ml_hr = 0;
@@ -1502,6 +1625,9 @@ void setup() {
   stationPrefs.end();
   applyScreenRotation(savedRot);   // ทิศจอที่เคยตั้งไว้ที่หน้าเครื่อง
   if (currentStationId < 1 || currentStationId > 8) currentStationId = 1;
+  // [7.9.0] เพิ่ม: กู้จำนวนหยดสะสมของเตียงนี้กลับมา ไฟดับแล้วยอดต้องไม่หาย
+  totalDrops    = tallyRestore(currentStationId);
+  totalVolumeMl = (float)totalDrops / (float)safeDropFactor(dropFactor);
 
   // ---- กันสเตชันหลายตัวส่งชนกัน ----
   // เมล็ดสุ่มมาจาก MAC (ไม่ซ้ำกันทุกบอร์ด) และรอบแรกเหลื่อมกันตามเลขเตียง
@@ -1513,7 +1639,11 @@ void setup() {
                ^ ((uint32_t)currentStationId << 24) ^ (uint32_t)micros());
     lastSendTime  = millis();
     nextSendDelay = (unsigned long)currentStationId * (SEND_INTERVAL_MS / 9);
-  }
+  
+  bootResetReason = esp_reset_reason();   // [7.9.0] เพิ่ม: จำไว้ว่ารีบูตครั้งล่าสุดเพราะอะไร
+  Serial.printf("[boot] reset reason: %s\n", resetReasonText(bootResetReason));
+  setupLoopWatchdog();
+}
   if (savedChannel < 1 || savedChannel > MAX_WIFI_CHANNEL) savedChannel = DEFAULT_ESPNOW_CHANNEL;
 
   loadLearning();   // ใส่สิ่งที่เคยเรียนรู้ไว้กลับเข้าไป ให้พร้อมใช้งานเร็วขึ้น
@@ -1568,6 +1698,7 @@ void setup() {
 // Loop
 // ----------------------------------------------------------------------------
 void loop() {
+  feedWatchdog();   // [7.9.0] เพิ่ม: บอกสุนัขเฝ้าบ้านว่ายังเดินอยู่
   serviceDropSensor(isRunning);   // อ่านเซนเซอร์ + เดินอัลกอริทึม (ไม่นับหยดตอนหยุดชั่วคราว)
   handleButton();
 
@@ -1577,7 +1708,7 @@ void loop() {
 
   // ตรวจสอบการเชื่อมต่อกับ Host หากเกิน 5 วินาทีให้ถือว่าหลุด
   unsigned long lr = lastHostRecvTime;
-  if (lr == 0 || (currentMillis > lr && currentMillis - lr > HOST_TIMEOUT_MS)) {
+  if (lr == 0 || (currentMillis - lr > HOST_TIMEOUT_MS)) {   // [7.9.0] แก้: ตัด currentMillis > lr ทิ้ง เพราะทำให้การวนรอบของ millis() พัง
     isHostOnline = false;
   }
   manageChannelHunting(currentMillis);
@@ -1589,6 +1720,7 @@ void loop() {
     resetRateWindow();
   }
   totalVolumeMl = (float)totalDrops / (float)safeDropFactor(dropFactor);
+  serviceTallySave(currentMillis, totalDrops, currentStationId);   // [7.9.0] เพิ่ม
 
   uint8_t alertCode = effectiveAlertCode();
   uiAlertCode = alertCode;                                // ให้ทุกหน้าจอใช้รหัสเดียวกัน
@@ -1628,6 +1760,8 @@ void loop() {
         stationPrefs.begin("st_cfg", false);
         stationPrefs.putUChar("id", currentStationId);
         stationPrefs.end();
+        // [7.9.0] เพิ่ม: ย้ายยอดสะสมไปอยู่ใต้เลขเตียงใหม่ ไม่งั้นบูตหน้าจะกู้ไม่เจอ
+        tallyWriteNvs(totalDrops, currentStationId);
         // ล้างค่าของเตียงเดิม รอค่าของเตียงใหม่จาก Host
         targetRateHr = 0;
         totalPlanMl = 0;

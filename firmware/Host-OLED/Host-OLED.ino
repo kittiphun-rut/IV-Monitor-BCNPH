@@ -1,7 +1,7 @@
 /**
  * @file      Host-OLED.ino
  * @brief     เฟิร์มแวร์เครื่องส่วนกลาง รุ่นจอ OLED รับข้อมูลทุกเตียงและแจ้งเตือนพยาบาล
- * @version   4.7.7-OLED
+ * @version   4.8.0-OLED
  * @date      2026-09-23
  * @author    นายกิตติพันธ์ รัตนคร <kittiphun.rut@mcu.ac.th>
  *
@@ -22,6 +22,7 @@
  * @par Revision History
  * | Version | Date | Change |
  * |---|---|---|
+ * | 4.8.0-OLED | 2026-09-23 | เตียงที่หายไประหว่างให้น้ำเกลือมีเสียงเตือนแล้ว เพิ่มสุนัขเฝ้าบ้าน รายงานสาเหตุการรีบูต และปฏิเสธแพ็กเก็ตที่ค่าเป็นไปไม่ได้ |
  * | 4.7.7-OLED | 2026-09-23 | ย้ายโค้ดวาดจอออกไปไว้ที่ `HostScreen.h` ตรรกะไม่เปลี่ยนแม้แต่บรรทัดเดียว |
  * | 4.7.6-OLED | 2026-09-23 | นำการเชื่อมต่อเราเตอร์กลับมาเพื่อลดภาระซีพียู และปรับจังหวะ poll ตามจำนวนผู้ใช้ |
  * | 4.7.5-OLED | 2026-09-12 | แก้บั๊ก `oldPlan` อ่านค่าหลังเขียนทับ และหยดปลอมบนแอนิเมชัน |
@@ -153,8 +154,22 @@
 #include <time.h>
 #include <sys/time.h>
 #include <driver/rtc_io.h>
+#include <esp_task_wdt.h>          // [4.8.0-OLED] เพิ่ม: สุนัขเฝ้าบ้าน กันเครื่องค้างเงียบ
+#include <esp_system.h>            // [4.8.0-OLED] เพิ่ม: อ่านสาเหตุการรีบูตครั้งล่าสุด
 
-#define APP_VERSION         "4.7.7-OLED"
+// ----------------------------------------------------------------------------
+// สุนัขเฝ้าบ้านและสาเหตุการรีบูต ([4.8.0-OLED] เพิ่มทั้งหมด)
+//
+// เครื่องนี้ทำหน้าที่เตือนภัย การค้างแบบเงียบจึงอันตรายกว่าการรีบูต เพราะจอยัง
+// ค้างภาพเดิมไว้ พยาบาลจึงเข้าใจว่าระบบยังเฝ้าอยู่ ทั้งที่หยุดไปแล้ว
+// ตั้งไว้ 8 วินาที ซึ่งยาวกว่ารอบ loop() ปกติหลายเท่า จึงไม่รีบูตเพราะงานหนักชั่วคราว
+// ----------------------------------------------------------------------------
+#define LOOP_WDT_TIMEOUT_S      8
+
+esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
+
+
+#define APP_VERSION         "4.8.0-OLED"
 #define DEV_NAME            "กิตติพันธ์ รัตนคร"
 #define DEV_ROLE            "นักวิชาการคอมพิวเตอร์"
 #define DEV_INSTITUTION     "มหาวิทยาลัยมหาจุฬาลงกรณราชวิทยาลัย วิทยาเขตแพร่"
@@ -176,6 +191,9 @@
 #define SYNC_INTERVAL_MS        1000     // แต่ละเตียงได้รับ Sync ครบ 1 ใบทุก 1 วินาที
 #define SYNC_SLOT_MIN_MS        60       // ช่องเวลาต่ำสุดระหว่างแพ็กเก็ต Sync สองใบ
 #define ONLINE_TIMEOUT_MS       8000     // ไม่ได้รับข้อมูลเกิน 8 วินาที = OFFLINE
+#define LOST_LINK_GRACE_MS      30000    // [4.8.0-OLED] เพิ่ม: เงียบต่อจาก OFFLINE อีกเท่านี้จึงถือว่าขาดการติดต่อจริง
+#define MAX_PLAUSIBLE_RATE_HR   3000.0f  // [4.8.0-OLED] เพิ่ม: ชุดให้สารน้ำมาตรฐานไหลได้ไม่ถึงเท่านี้
+#define MAX_PLAUSIBLE_BATT_V    6.0f     // [4.8.0-OLED] เพิ่ม: แบตลิเธียมเซลล์เดียว ไม่มีทางถึง 6 โวลต์
                                          // Station ส่งวินาทีละใบ ค่านี้จึงยอมให้หายติดกัน 8 ใบ
                                          // (เดิม 5 วินาที = 5 ใบ ซึ่งน้อยเกินไปเมื่อมีหลายเตียง)
 #define LINK_WINDOW_MS          10000UL  // หน้าต่างวัดคุณภาพลิงก์ (คาดหวัง 10 ใบ)
@@ -220,6 +238,7 @@
 #define ALERT_COMPLETE    4   // ให้ครบตามแผนแล้ว
 #define ALERT_OCCLUSION   5   // สายพับ / หยุดไหล
 #define ALERT_NO_SIGNAL   6   // เซนเซอร์ยังไม่จับหยดเลย (คนละเรื่องกับสายพับ)
+#define ALERT_LOST_LINK   7   // [4.8.0-OLED] เพิ่ม: เตียงที่กำลังให้น้ำเกลือหายไปจากอากาศ (ใช้ฝั่ง Host เท่านั้น)
                               // ใช้ภายใน Host เท่านั้น ไม่ส่งออกไปที่ Station
 
 // โหมดภาพของกระเปาะหยดบนจอ Host — ให้ตรงกับที่จอ Station แสดงในหน้า 1 IV BAG
@@ -375,6 +394,8 @@ struct StationData {
   unsigned long deviationSince = 0;
   uint8_t nearEndPct = DEFAULT_NEAR_END_PCT;   // เก็บแยก key ใน NVS เพื่อไม่ให้ค่าตั้งเดิมหาย
   bool nearEndAck = false;
+  bool wasMonitoring = false;   // [4.8.0-OLED] เพิ่ม: เคยเห็นเตียงนี้ออนไลน์และกำลังนับอยู่จริง
+  bool lostLinkAck = false;     // [4.8.0-OLED] เพิ่ม: พยาบาลรับทราบว่าเตียงนี้ขาดการติดต่อแล้ว
   unsigned long nearNextChime = 0;
 
   BedConfig cfg;
@@ -412,6 +433,47 @@ void updateHostOLED();
 // ----------------------------------------------------------------------------
 // ฟังก์ชันช่วย
 // ----------------------------------------------------------------------------
+// เรียกได้ทุกที่ รวมถึงก่อนสมัครสมาชิก — ถ้ายังไม่ได้สมัครจะคืนค่าผิดพลาดเฉย ๆ
+inline void feedWatchdog() {
+  esp_task_wdt_reset();
+}
+
+void setupLoopWatchdog() {
+#if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  esp_task_wdt_config_t wdtCfg = {};
+  wdtCfg.timeout_ms     = LOOP_WDT_TIMEOUT_S * 1000;
+  wdtCfg.idle_core_mask = 0;            // ไม่เฝ้างานว่าง เฝ้าเฉพาะ loop() ของเรา
+  wdtCfg.trigger_panic  = true;         // ค้างจริง = รีบูต ดีกว่าค้างเงียบต่อไป
+  // core 3.x เปิดตัวเฝ้าไว้ให้แล้วในบางการตั้งค่า จึงต้องเผื่อทางตั้งค่าใหม่ด้วย
+  if (esp_task_wdt_init(&wdtCfg) == ESP_ERR_INVALID_STATE) esp_task_wdt_reconfigure(&wdtCfg);
+#else
+  esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
+#endif
+  esp_task_wdt_add(NULL);
+}
+
+// ปิดการเฝ้าก่อนเข้าโหมดหลับ มิฉะนั้นการรอให้ปล่อยปุ่มจะถูกนับว่าค้าง
+void stopLoopWatchdog() {
+  esp_task_wdt_delete(NULL);
+}
+
+// ข้อความสั้น ๆ ไว้แสดงในหน้าเว็บและใน Serial เพื่อให้ตามรอยปัญหาในวอร์ดจริงได้
+const char* resetReasonText(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON:  return "power-on";
+    case ESP_RST_EXT:      return "external";
+    case ESP_RST_SW:       return "software";
+    case ESP_RST_PANIC:    return "panic";
+    case ESP_RST_INT_WDT:  return "int-wdt";
+    case ESP_RST_TASK_WDT: return "task-wdt";
+    case ESP_RST_WDT:      return "other-wdt";
+    case ESP_RST_DEEPSLEEP:return "deep-sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO:     return "sdio";
+    default:               return "unknown";
+  }
+}
+
 uint8_t safeDropFactor(uint8_t df) {
   return (df == 10 || df == 15 || df == 20 || df == 60) ? df : 20;
 }
@@ -419,13 +481,15 @@ uint8_t safeDropFactor(uint8_t df) {
 bool isCriticalAlert(uint8_t code) {
   return code == ALERT_TOO_FAST || code == ALERT_TOO_SLOW ||
          code == ALERT_COMPLETE || code == ALERT_OCCLUSION ||
-         code == ALERT_NO_SIGNAL;
+         code == ALERT_NO_SIGNAL ||
+         code == ALERT_LOST_LINK;
 }
 
 // รหัสที่ส่งออกไปให้ Station — Station รุ่นเก่าไม่รู้จัก ALERT_NO_SIGNAL
 // จึงต้องแปลงเป็น ALERT_NONE เสมอ เพื่อให้เข้ากันได้กับทุกรุ่นตั้งแต่ 7.4.x ขึ้นไป
 uint8_t alertCodeForStation(uint8_t code) {
-  return (code == ALERT_NO_SIGNAL) ? ALERT_NONE : code;
+  // [4.8.0-OLED] แก้: กันรหัส 7 ไม่ให้หลุดออกไป Station รุ่นเดิมไม่รู้จัก
+  return (code == ALERT_NO_SIGNAL || code == ALERT_LOST_LINK) ? ALERT_NONE : code;
 }
 
 uint8_t safeNearPct(uint8_t p) {
@@ -441,6 +505,16 @@ bool isStationOnline(int i) {
   if (lr == 0) return false;
   unsigned long now = millis();
   return (now < lr) || (now - lr < ONLINE_TIMEOUT_MS);
+}
+
+// [4.8.0-OLED] เพิ่ม: เตียงที่กำลังให้น้ำเกลืออยู่ แล้วเงียบหายไปจากอากาศ
+// ต้องเคยเห็นว่าออนไลน์และกำลังนับมาก่อน เตียงที่ยังไม่เคยเปิดใช้จึงไม่ร้อง
+bool isStationLostLink(int i) {
+  const StationData &s = stations[i];
+  if (!s.wasMonitoring || s.lostLinkAck) return false;
+  if (isStationOnline(i)) return false;
+  if (s.lastRecvTime == 0) return false;
+  return (millis() - s.lastRecvTime) > (ONLINE_TIMEOUT_MS + LOST_LINK_GRACE_MS);
 }
 
 // เกณฑ์เวลา "ไม่มีหยด" = 2.5 เท่าของช่วงหยดตามเป้าหมาย (ขั้นต่ำ 8 วินาที) — สูตรเดียวกับ Station
@@ -511,6 +585,7 @@ const char* alertTextEn(uint8_t code) {
     case ALERT_NEAR_END:  return "NEXT BAG";
     case ALERT_COMPLETE:  return "BAG EMPTY";
     case ALERT_OCCLUSION: return "OCCLUSION";
+    case ALERT_LOST_LINK: return "BED LOST";
     case ALERT_NO_SIGNAL: return "NO SIGNAL";
     default:              return "NORMAL";
   }
@@ -880,6 +955,7 @@ void playShutdownMelody() {
 // ระบบควบคุม Power & Deep Sleep (ESP32-S3 ใช้ ext0 wakeup)
 // ----------------------------------------------------------------------------
 void enterDeepSleepWaitPowerButton() {
+  stopLoopWatchdog();   // [4.8.0-OLED] เพิ่ม: เลิกเฝ้าก่อนหลับ ไม่งั้นถูกนับว่าค้าง
   rtc_gpio_pullup_en((gpio_num_t)POWER_BTN_PIN);
   rtc_gpio_pulldown_dis((gpio_num_t)POWER_BTN_PIN);
   esp_sleep_enable_ext0_wakeup((gpio_num_t)POWER_BTN_PIN, 0);
@@ -899,7 +975,7 @@ void powerOffSystem() {
 
   playShutdownMelody();
 
-  while (digitalRead(POWER_BTN_PIN) == LOW) delay(20);
+  while (digitalRead(POWER_BTN_PIN) == LOW) { feedWatchdog(); delay(20); }
   delay(200);
 
   u8g2.clearBuffer();
@@ -923,7 +999,23 @@ void evaluateClinicalAlerts() {
 
   for (int i = 0; i < activeStationCount; i++) {
     StationData &s = stations[i];
-    if (!isStationOnline(i) || !s.isRunning) {
+    // [4.8.0-OLED] แก้: แยก "ติดต่อเตียงไม่ได้" ออกจาก "พยาบาลสั่งหยุด" ของเดิมรวมสองกรณีนี้
+    // ไว้ด้วยกันแล้วล้างรหัสเตือนทิ้งทั้งคู่ เตียงที่กำลังให้น้ำเกลืออยู่แล้วหายไป
+    // จากอากาศจึงไม่มีเสียงใด ๆ ทั้งที่ระบบเลิกเฝ้าเตียงนั้นไปแล้ว
+    if (!isStationOnline(i)) {
+      uint8_t lost = isStationLostLink(i) ? ALERT_LOST_LINK : ALERT_NONE;
+      if (s.alertCode != lost) requestSyncNow(i);   // ยกเลิกเตือนที่ Station ทันที
+      s.alertCode = lost;
+      s.deviationSince = 0;
+      if (lost != ALERT_NONE) anyCritical = true;   // รหัสนี้ตัดสินตรงนี้ เพราะข้ามส่วนท้ายไป
+      continue;
+    }
+
+    // ติดต่อได้ตามปกติ = ล้างสถานะขาดการติดต่อทิ้ง พร้อมรับเหตุการณ์ครั้งใหม่
+    s.lostLinkAck = false;
+    s.wasMonitoring = s.isRunning;        // เฝ้าอยู่จริงเฉพาะตอนที่กำลังนับ
+
+    if (!s.isRunning) {
       if (s.alertCode != ALERT_NONE) requestSyncNow(i);   // ยกเลิกเตือนที่ Station ทันที
       s.alertCode = ALERT_NONE;
       s.deviationSince = 0;
@@ -1162,6 +1254,15 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingDataBytes, int len) {
   memcpy(&incoming, incomingDataBytes, sizeof(incoming));
   if (incoming.stationId < 1 || incoming.stationId > MAX_SUPPORTED_STATIONS) return;
 
+  // [4.8.0-OLED] เพิ่ม: ปฏิเสธค่าที่เป็นไปไม่ได้ทางกายภาพ
+  // แพ็กเก็ต ESP-NOW เป็นการกระจายเปล่า ไม่มีลายเซ็นและไม่มีเลขตรวจสอบ การตรวจเดิม
+  // มีแค่ความยาวกับช่วงของเลขเตียง อุปกรณ์อื่นที่บังเอิญส่งขนาด 23 ไบต์ในช่องเดียวกัน
+  // จึงถูกตีความเป็นข้อมูลเตียงได้ ทำให้ตัวเลขบนจอกระโดดและอาจปลุกเสียงเตือนผิด
+  // เขียนกลับด้านเพื่อให้ดัก NaN ไปด้วยในตัว (การเทียบใด ๆ กับ NaN เป็นเท็จเสมอ)
+  if (incoming.isRunning > 1) return;
+  if (!(incoming.flowRateHr   >= 0.0f && incoming.flowRateHr   <= MAX_PLAUSIBLE_RATE_HR)) return;
+  if (!(incoming.batteryVolts >= 0.0f && incoming.batteryVolts <= MAX_PLAUSIBLE_BATT_V)) return;
+
   int idx = incoming.stationId - 1;
 
 #if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
@@ -1383,6 +1484,8 @@ void handleApiData() {
   json.reserve(3000);
   json = "{";
   json += "\"version\":\"" APP_VERSION "\",";
+  // [4.8.0-OLED] เพิ่ม: เครื่องรีบูตเองแล้วไม่มีใครรู้สาเหตุ = หาต้นตอในวอร์ดจริงไม่ได้
+  json += "\"resetReason\":\"" + String(resetReasonText(bootResetReason)) + "\",";
   json += "\"pollMs\":" + String(currentPollMs) + ",";
   json += "\"netMode\":\"" + netModeLabel() + "\",";
   json += "\"netIP\":\"" + activeIP().toString() + "\",";
@@ -1535,6 +1638,7 @@ void handleStationAck() {
   int idx = parseStationArg();
   if (idx < 0) { server.send(400, "text/plain", "Invalid station"); return; }
   stations[idx].nearEndAck = true;
+  stations[idx].lostLinkAck = true;   // [4.8.0-OLED] เพิ่ม: ปุ่มรับทราบเดิมใช้ปิดเสียงเตียงที่ขาดการติดต่อได้ด้วย
   requestSyncNow(idx);
   server.send(200, "application/json", "{\"ok\":true}");
 }
@@ -1779,6 +1883,7 @@ void setup() {
     bool validHoldToTurnOn = false;
 
     while (digitalRead(POWER_BTN_PIN) == LOW) {
+      feedWatchdog();
       if (millis() - pressStart >= 1500) {
         validHoldToTurnOn = true;
         break;
@@ -1787,14 +1892,18 @@ void setup() {
     }
 
     if (!validHoldToTurnOn) {
-      while (digitalRead(POWER_BTN_PIN) == LOW) delay(10);
+      while (digitalRead(POWER_BTN_PIN) == LOW) { feedWatchdog(); delay(10); }
       delay(100);
       enterDeepSleepWaitPowerButton();
     }
 
-    while (digitalRead(POWER_BTN_PIN) == LOW) delay(10);
+    while (digitalRead(POWER_BTN_PIN) == LOW) { feedWatchdog(); delay(10); }
     delay(150);
-  }
+  
+  bootResetReason = esp_reset_reason();   // [4.8.0-OLED] เพิ่ม: จำไว้ว่ารีบูตครั้งล่าสุดเพราะอะไร
+  Serial.printf("[boot] reset reason: %s\n", resetReasonText(bootResetReason));
+  setupLoopWatchdog();
+}
 
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
@@ -1897,6 +2006,7 @@ void setup() {
 //  Main Execution Loop
 // ==========================================
 void loop() {
+  feedWatchdog();   // [4.8.0-OLED] เพิ่ม: บอกสุนัขเฝ้าบ้านว่ายังเดินอยู่
   server.handleClient();
 
   checkSmartphonePowerButton();

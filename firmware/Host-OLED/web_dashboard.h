@@ -1,7 +1,7 @@
 /**
  * @file      web_dashboard.h
  * @brief     หน้าเว็บ Dashboard ของเครื่องส่วนกลาง รุ่นจอ OLED
- * @version   4.7.6
+ * @version   4.8.0
  * @date      2026-09-23
  * @author    นายกิตติพันธ์ รัตนคร <kittiphun.rut@mcu.ac.th>
  *
@@ -17,6 +17,7 @@
  * @par Revision History
  * | Version | Date | Change |
  * |---|---|---|
+ * | 4.8.0 | 2026-09-23 | หน้าเว็บขึ้นแดงเป็นเหตุวิกฤตเมื่อเตียงที่กำลังให้น้ำเกลือหายไปจากอากาศ |
  * | 4.7.6 | 2026-09-23 | เพิ่มหน้าตั้งค่าเราเตอร์ และปรับจังหวะรีเฟรชตามจำนวนผู้ใช้ที่เปิดพร้อมกัน |
  * | 4.7.2 | 2026-09-18 | ปรับการ์ดเตียง แถบแจ้งเตือนรวม และเสียงเตือนตามที่พยาบาลขอ |
  *
@@ -886,13 +887,14 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
       3: { text: '⏳ ใกล้หมด เตรียมถุงใหม่', cls: 'badge-warn',   card: 'warn-state',  alarm: false },
       4: { text: '🛑 ให้ครบตามแผนแล้ว',   cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
       5: { text: '⚠️ สายพับ/หยุดไหล',     cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
-      6: { text: '🔍 เซนเซอร์ยังไม่จับหยด', cls: 'badge-alarm',  card: 'alarm-state', alarm: true  }
+      6: { text: '🔍 เซนเซอร์ยังไม่จับหยด', cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
+      7: { text: '📵 ติดต่อเตียงไม่ได้',    cls: 'badge-alarm',  card: 'alarm-state', alarm: true  }
     };
 
     // ข้อความสั้น ๆ สำหรับแถบแจ้งเตือนรวม — ให้พยาบาลอ่านแวบเดียวรู้ว่าต้องไปทำอะไร
     const ALERT_SHORT = {
       1: 'ไหลเร็วเกิน', 2: 'ไหลช้าเกิน', 3: 'ใกล้หมด',
-      4: 'ให้ครบแล้ว', 5: 'ไม่ไหล / สายพับ', 6: 'เซนเซอร์ไม่จับหยด'
+      4: 'ให้ครบแล้ว', 5: 'ไม่ไหล / สายพับ', 6: 'เซนเซอร์ไม่จับหยด', 7: 'ติดต่อเตียงไม่ได้'
     };
 
     function escapeHtml(str) {
@@ -1270,8 +1272,15 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
         let cardState = '';
         let isAlarm = false;
 
+        // [4.8.0] แก้: เตียงที่หายไประหว่างให้น้ำเกลือ ต้องขึ้นแดงเหมือนเหตุวิกฤตอื่น
         if (!st.online) {
-          statusBadge = '<span class="badge-status badge-offline">○ Offline</span>';
+          if (st.alertCode === 7) {
+            statusBadge = `<span class="badge-status ${meta.cls}">${meta.text}</span>`;
+            cardState = meta.card;
+            isAlarm = true;
+          } else {
+            statusBadge = '<span class="badge-status badge-offline">○ Offline</span>';
+          }
         } else if (isPaused) {
           statusBadge = '<span class="badge-status badge-paused">⏸️ หยุดชั่วคราว</span>';
           cardState = 'paused-state';
