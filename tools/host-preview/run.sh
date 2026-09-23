@@ -3,12 +3,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 OUT="${1:-../../docs/screens-host}"
-SKETCH_DIR="../../firmware/ESP32-S3-Host-TFT-V_4_8_0"
+SKETCH_DIR="../../firmware/Host-TFT28"
 
 # ตรวจลำดับการประกาศชนิดข้อมูล (Arduino แทรก prototype ไว้ก่อนฟังก์ชันแรกของไฟล์)
-python3 ../check-ino-types.py "$SKETCH_DIR/ESP32-S3-Host-TFT-V_4_8_0.ino"
+python3 ../check-ino-types.py "$SKETCH_DIR/Host-TFT28.ino"
 
-cp "$SKETCH_DIR/ESP32-S3-Host-TFT-V_4_8_0.ino" host.cpp
+cp "$SKETCH_DIR/Host-TFT28.ino" host.cpp
 cp "$SKETCH_DIR/web_dashboard.h" web_dashboard.h
 g++ -std=gnu++17 -I../screen-preview -Wall -Wno-unused-variable -Wno-format-truncation -o hostpreview driver.cpp
 ./hostpreview ops.txt

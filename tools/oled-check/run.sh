@@ -4,7 +4,7 @@
 #  เครื่องมือนี้เน้นจับข้อผิดพลาดตอนคอมไพล์ ซึ่งเป็นสิ่งที่พลาดบ่อยที่สุด)
 set -euo pipefail
 cd "$(dirname "$0")"
-SKETCH_DIR="${1:-../../firmware/ESP32-S3-Host-OLED-V_4_7_1}"
+SKETCH_DIR="${1:-../../firmware/Host-OLED}"
 NAME="$(basename "$SKETCH_DIR")"
 
 cp "$SKETCH_DIR/$NAME.ino" host_oled.cpp

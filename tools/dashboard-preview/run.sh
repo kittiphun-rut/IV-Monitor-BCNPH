@@ -3,7 +3,7 @@
 # ใช้: run.sh [โฟลเดอร์เฟิร์มแวร์] [โฟลเดอร์ผลลัพธ์]
 set -euo pipefail
 cd "$(dirname "$0")"
-SRC="${1:-../../firmware/ESP32-S3-Host-OLED-V_4_7_5}"
+SRC="${1:-../../firmware/Host-OLED}"
 OUT="${2:-../../docs/screens-dashboard}"
 mkdir -p "$OUT"
 CHROME=/opt/pw-browsers/chromium-1194/chrome-linux/chrome
