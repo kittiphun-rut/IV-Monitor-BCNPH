@@ -5,11 +5,41 @@
  * สถาบัน: วิทยาลัยพยาบาลบรมราชชนนี แพร่ คณะพยาบาลศาสตร์ สถาบันพระบรมราชชนก
  *
  * ระบบ: Central Host Gateway (เครื่องควบคุมและติดตามศูนย์กลาง)
- * เวอร์ชัน: 4.7.2-OLED (Protocol v3 — ใช้คู่กับ Bed Station 7.4.x / 7.5.x / 7.7.x)
+ * เวอร์ชัน: 4.7.6-OLED (Protocol v3 — ใช้คู่กับ Bed Station 7.4.x / 7.5.x / 7.7.x)
  * บอร์ดประมวลผล: ESP32-S3 Dev Module (N16R8) + จอ 1.3" OLED (SH1106 I2C) + Passive Buzzer
  *
  * ผู้พัฒนาระบบ: นายกิตติพันธ์ รัตนคร (นักวิชาการคอมพิวเตอร์ มจร. วิทยาเขตแพร่)
  * อาจารย์ที่ปรึกษา: ดร.กรรณิการ์ กาศสมบูรณ์ (วิทยาลัยพยาบาลบรมราชชนนี แพร่)
+ *
+ * ---------------------------------------------------------------------------
+ * เปลี่ยนใน V4.7.6-OLED: นำการเชื่อมต่อเราเตอร์กลับมา เพื่อลดภาระซีพียู
+ *
+ *  ปัญหา: เมื่อมีสมาร์ตโฟนหลายเครื่องเปิดหน้าเว็บพร้อมกัน เครื่องต้องทำหน้าที่
+ *  Access Point ให้ทุกเครื่องเอง ทั้งส่ง beacon จัดการการเข้าร่วม และกันบัฟเฟอร์
+ *  ไว้ต่อเครื่อง งานเหล่านี้แย่งเวลาจากการรับสัญญาณ ESP-NOW ของเตียง
+ *
+ *  1) โหมดเครือข่ายใหม่: เกาะเราเตอร์เป็นหลัก ถ้าต่อไม่ได้ค่อยเปิด AP สำรอง
+ *     ต่อเราเตอร์สำเร็จ = ปิด AP ทิ้ง ภาระส่วนนี้หายหมด ไม่ใช่ WIFI_AP_STA
+ *     ที่เปิดทั้งสองอย่างค้างไว้เหมือน v4.6.0 ซึ่งไม่ได้ลดภาระเลย
+ *  2) ต่อไม่ได้ใน 15 วินาที หรือเราเตอร์หลุดเกิน 20 วินาที -> เปิด AP กลับมาเอง
+ *     พยาบาลต่อ SSID เดิมได้เหมือนทุกวัน ไม่มีช่วงที่เข้าหน้าเว็บไม่ได้
+ *  3) ขณะใช้ AP สำรอง จะลองกลับไปเกาะเราเตอร์ทุก 10 นาที แต่เฉพาะตอนไม่มีใคร
+ *     ต่อ AP อยู่ เพราะการสลับโหมดจะตัดการเชื่อมต่อของผู้ใช้
+ *  4) ESP-NOW ใช้ช่องของเราเตอร์ได้เลย ไม่ต้องบังคับกลับเป็นช่อง 1
+ *     เพราะ Station มี manageChannelHunting() ไล่หาช่องเอง เจอภายใน ~33 วินาที
+ *     (v4.6.0 บังคับช่องกลับหลังเกาะเราเตอร์ ซึ่งทำให้ลิงก์เราเตอร์พังทันที)
+ *  5) การค้นหาเครือข่ายใช้แบบไม่บล็อก หน้าเว็บถามผลซ้ำจนกว่าจะเสร็จ
+ *     (v4.6.0 ใช้ WiFi.scanNetworks() แบบบล็อก ทำให้แพ็กเก็ตจากเตียงหายช่วงสแกน)
+ *  6) สั่งปิดโหมดประหยัดพลังงานของวิทยุซ้ำสามจุดรอบการเข้าโหมด STA
+ *     เพราะ Arduino core เรียก esp_wifi_set_ps() ทับตอน STA_START ด้วยค่าปริยาย
+ *     WIFI_PS_MIN_MODEM ของ ESP32-S3 ซึ่งทำให้ตัวรับหลับและแพ็กเก็ตมาถึงช้าเป็นวินาที
+ *  7) หน้าเว็บปรับจังหวะรีเฟรชตามจำนวนผู้ใช้จริง Host วัดอัตราเรียก /api/data
+ *     แล้วบอก pollMs กลับไป ยืดได้ถึง 4 วินาทีเมื่อคนเปิดพร้อมกันมาก
+ *     และเปลี่ยนจาก setInterval เป็น setTimeout ต่อทอด คำขอจึงไม่ทับถมกันเป็นคิว
+ *  8) จอ OLED แสดงที่อยู่ที่ต้องพิมพ์ทั้งบนหน้าพักจอและหน้า LINK DIAGNOSTIC
+ *     เพราะที่อยู่เปลี่ยนตามเราเตอร์ ไม่ใช่ 192.168.4.1 คงที่เหมือนเดิม
+ *
+ *  ตรรกะการวัด การแจ้งเตือน และโครงสร้างแพ็กเก็ต Protocol v3 ไม่เปลี่ยนแม้แต่ไบต์เดียว
  *
  * ---------------------------------------------------------------------------
  * เปลี่ยนใน V4.7.2-OLED: ปรับหน้าเว็บ Dashboard ตามที่พยาบาลขอมา
@@ -54,12 +84,12 @@
  *
  * ---------------------------------------------------------------------------
  * เปลี่ยนใน V4.7.0: ตัดระบบจัดการ Wi-Fi (Router/อินเทอร์เน็ต) ออกทั้งหมด
- *  - Host ทำงานเป็น Access Point อย่างเดียว (WIFI_AP) ไม่ต่อ Router ไม่ใช้ NTP
+ *  - Host เกาะเราเตอร์เป็นหลัก (WIFI_STA) ถ้าต่อไม่ได้เปิด Access Point สำรอง (WIFI_AP)
  *    -> ไม่มีการสแกนช่อง/รีคอนเนกต์มาแย่งเวลาคลื่นวิทยุ ESP-NOW และ Web Server อีก
  *  - รองรับสมาร์ตโฟน/แท็บเล็ตพร้อมกันได้ถึง AP_MAX_CLIENTS เครื่อง (เดิมค่าปริยาย 4
  *    และในโหมด AP+STA เหลือใช้งานจริงเพียง 2-3 เครื่อง)
  *  - ปิดโหมดประหยัดพลังงานของ Wi-Fi (WIFI_PS_NONE) ให้ตอบสนองหลายเครื่องพร้อมกันได้นิ่ง
- *  - ESP-NOW ส่งผ่านอินเทอร์เฟซ AP (WIFI_IF_AP) เพราะไม่มี STA แล้ว
+ *  - ESP-NOW ส่งผ่านอินเทอร์เฟซที่ใช้อยู่จริง (WIFI_IF_STA หรือ WIFI_IF_AP)
  *  - ตั้งเวลาจากนาฬิกาของเครื่องที่เปิดหน้าเว็บโดยอัตโนมัติ (แทน NTP) และสำรองเวลาไว้ใน NVS
  *    ทุก 10 นาที เพื่อให้เวลาไม่หายเมื่อไฟดับ (แสดงเป็น "เวลาโดยประมาณ" จนกว่าจะซิงก์ใหม่)
  *  - หน้าเว็บ: เอาเมนูจัดการ Wi-Fi ออก เหลือหน้าต่างแสดงข้อมูลจุดเชื่อมต่อแบบอ่านอย่างเดียว
@@ -100,7 +130,7 @@
 #include <sys/time.h>
 #include <driver/rtc_io.h>
 
-#define APP_VERSION         "4.7.5-OLED"
+#define APP_VERSION         "4.7.6-OLED"
 #define DEV_NAME            "กิตติพันธ์ รัตนคร"
 #define DEV_ROLE            "นักวิชาการคอมพิวเตอร์"
 #define DEV_INSTITUTION     "มหาวิทยาลัยมหาจุฬาลงกรณราชวิทยาลัย วิทยาเขตแพร่"
@@ -145,6 +175,19 @@
 #define AP_MAX_CLIENTS          8        // จำนวนสมาร์ตโฟน/แท็บเล็ตที่ต่อพร้อมกันได้ (สูงสุด 10)
 #define TIME_BACKUP_INTERVAL_MS 600000   // สำรองเวลาปัจจุบันลง NVS ทุก 10 นาที
 
+// ---- โหมดเครือข่าย: เกาะเราเตอร์เป็นหลัก ถ้าต่อไม่ได้ค่อยเปิด AP สำรอง ----
+// เหตุผล: เมื่อสมาร์ตโฟนต่อผ่านเราเตอร์ Host ไม่ต้องทำหน้าที่ Access Point
+// จึงไม่มีภาระ beacon / การจัดการ client / บัฟเฟอร์ต่อเครื่อง
+#define STA_CONNECT_TIMEOUT_MS  15000    // รอเกาะเราเตอร์นานสุด 15 วินาที
+#define STA_LOST_GRACE_MS       20000    // หลุดจากเราเตอร์เกินเท่านี้ -> เปิด AP สำรอง
+#define STA_RETRY_INTERVAL_MS   600000   // ขณะใช้ AP สำรอง ลองกลับไปเกาะเราเตอร์ทุก 10 นาที
+                                         // (ลองเฉพาะตอนไม่มีใครต่อ AP อยู่ จะได้ไม่กวนผู้ใช้)
+
+// ---- ปรับจังหวะ poll ของหน้าเว็บตามจำนวนผู้ใช้จริง ----
+#define API_RATE_WINDOW_MS      5000     // หน้าต่างนับอัตราการเรียก /api/data
+#define POLL_MS_MIN             1000     // ผู้ใช้น้อย = รีเฟรชทุก 1 วินาทีเหมือนเดิม
+#define POLL_MS_MAX             4000     // ผู้ใช้มาก = ยืดถึง 4 วินาที กันซีพียูตัน
+
 // รหัสแจ้งเตือน (ใช้ร่วมกันทั้ง Host / Station / Web)
 #define ALERT_NONE        0
 #define ALERT_TOO_FAST    1
@@ -179,6 +222,23 @@ const char* TZ_THAILAND     = "ICT-7";
 
 WebServer server(80);
 Preferences preferences;
+
+// ---- สถานะเครือข่าย ----
+enum NetMode : uint8_t { NET_MODE_AP = 0, NET_MODE_STA = 1 };
+NetMode  netMode          = NET_MODE_AP;   // โหมดที่ใช้อยู่จริงในขณะนี้
+String   staSsid          = "";
+String   staPass          = "";
+bool     staConfigured    = false;         // มีรหัสเราเตอร์บันทึกไว้หรือไม่
+bool     staConnecting    = false;         // กำลังรอเกาะเราเตอร์อยู่
+uint32_t staAttemptStart  = 0;
+uint32_t staLostSince     = 0;             // เวลาที่เริ่มหลุดจากเราเตอร์ (0 = ไม่ได้หลุด)
+uint32_t lastStaRetry     = 0;
+int8_t   lastStaRssi      = 0;
+
+// ---- ตัวนับอัตราการเรียก /api/data เพื่อปรับจังหวะ poll ให้หน้าเว็บ ----
+uint16_t apiDataHits       = 0;
+uint32_t apiRateWindowAt   = 0;
+uint16_t currentPollMs     = POLL_MS_MIN;
 portMUX_TYPE dataMux = portMUX_INITIALIZER_UNLOCKED;
 
 uint8_t activeStationCount  = 5;
@@ -449,6 +509,147 @@ uint8_t currentWifiChannel() {
   esp_wifi_get_channel(&primary, &second);
   return primary;
 }
+
+// ----------------------------------------------------------------------------
+// การจัดการ Wi-Fi: เกาะเราเตอร์เป็นหลัก ถ้าต่อไม่ได้ค่อยเปิด AP สำรอง
+//
+// ข้อควรระวังที่เคยทำให้รุ่น v4.6.0 พัง และห้ามทำซ้ำ
+//   1) ห้ามเรียก esp_wifi_set_channel() ขณะอยู่โหมด STA
+//      ช่องถูกกำหนดโดยเราเตอร์ ถ้าไปบังคับกลับเป็นช่อง 1 ลิงก์เราเตอร์จะพังทันที
+//      ESP-NOW ไม่ต้องใช้ช่อง 1 เพราะ Station มี manageChannelHunting() ไล่หาช่องเอง
+//   2) ห้ามใช้ WiFi.scanNetworks() แบบบล็อก ระหว่างสแกนวิทยุจะกระโดดข้ามช่อง
+//      แพ็กเก็ต ESP-NOW หายหมด ใช้แบบ async แล้วมาเก็บผลทีหลังเท่านั้น
+//   3) ห้ามวนรอเกาะเราเตอร์แบบบล็อกใน loop() ทุกอย่างต้องเช็กแล้วออกทันที
+//   4) ต้องสั่งปิดโหมดประหยัดพลังงานซ้ำหลังเข้าโหมด STA
+//      เพราะ Arduino core เรียก esp_wifi_set_ps(WiFi.getSleep()) ทับตอน STA_START
+//      ซึ่งค่าปริยายของ ESP32-S3 คือ WIFI_PS_MIN_MODEM ทำให้ตัวรับหลับ
+//      อาการคือแพ็กเก็ตจาก Station มาถึงช้าเป็นวินาที
+// ----------------------------------------------------------------------------
+
+// ผูก peer กระจายเสียงของ ESP-NOW เข้ากับอินเทอร์เฟซที่ใช้งานอยู่จริง
+void attachEspNowPeer(wifi_interface_t ifidx) {
+  esp_now_del_peer(broadcastAddress);          // ไม่เป็นไรถ้ายังไม่มี
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;                        // 0 = ใช้ช่องปัจจุบันของอินเทอร์เฟซ
+  peerInfo.ifidx   = ifidx;
+  peerInfo.encrypt = false;
+  esp_now_add_peer(&peerInfo);
+}
+
+// บังคับปิดโหมดประหยัดพลังงานของวิทยุ (ดูข้อ 4 ด้านบน)
+void forceRadioAwake() {
+  WiFi.setSleep(false);
+  esp_wifi_set_ps(WIFI_PS_NONE);
+}
+
+void loadWifiConfig() {
+  preferences.begin("wifi-config", true);
+  staSsid = preferences.getString("ssid", "");
+  staPass = preferences.getString("pass", "");
+  preferences.end();
+  staConfigured = (staSsid.length() > 0);
+}
+
+void saveWifiConfig(const String &ssid, const String &pass) {
+  preferences.begin("wifi-config", false);
+  preferences.putString("ssid", ssid);
+  preferences.putString("pass", pass);
+  preferences.end();
+  staSsid = ssid;
+  staPass = pass;
+  staConfigured = (staSsid.length() > 0);
+}
+
+void clearWifiConfig() {
+  preferences.begin("wifi-config", false);
+  preferences.clear();
+  preferences.end();
+  staSsid = "";
+  staPass = "";
+  staConfigured = false;
+}
+
+// เปิด Access Point ของตัวเอง (โหมดสำรอง หรือเมื่อยังไม่ได้ตั้งรหัสเราเตอร์)
+void startApMode() {
+  staConnecting = false;
+  WiFi.disconnect(false, false);
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(default_ap_ssid, default_ap_pass, ESPNOW_CHANNEL, 0, AP_MAX_CLIENTS);
+  forceRadioAwake();
+  netMode = NET_MODE_AP;
+  lastStaRssi = 0;
+  attachEspNowPeer(WIFI_IF_AP);
+  Serial.printf("[HOST] โหมด AP: ช่อง %d รองรับ %d เครื่อง\n", currentWifiChannel(), AP_MAX_CLIENTS);
+}
+
+// เริ่มเกาะเราเตอร์ แบบไม่บล็อก (ผลลัพธ์ไปเช็กใน serviceWifi)
+void startStaMode() {
+  if (!staConfigured) { startApMode(); return; }
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  forceRadioAwake();                 // ครั้งที่ 1 ก่อน begin
+  WiFi.begin(staSsid.c_str(), staPass.c_str());
+  forceRadioAwake();                 // ครั้งที่ 2 หลัง begin เพราะ core ทับค่าตอน STA_START
+  staConnecting   = true;
+  staAttemptStart = millis();
+  Serial.printf("[HOST] กำลังเกาะเราเตอร์ \"%s\"\n", staSsid.c_str());
+}
+
+void onStaConnected() {
+  staConnecting = false;
+  staLostSince  = 0;
+  netMode       = NET_MODE_STA;
+  forceRadioAwake();                 // ครั้งที่ 3 หลังเชื่อมต่อสำเร็จ กันไว้อีกชั้น
+  attachEspNowPeer(WIFI_IF_STA);     // ไม่มี AP แล้ว ต้องส่งผ่าน STA
+  lastStaRssi = WiFi.RSSI();
+  Serial.printf("[HOST] เกาะเราเตอร์แล้ว IP %s ช่อง %d RSSI %d\n",
+                WiFi.localIP().toString().c_str(), currentWifiChannel(), lastStaRssi);
+  Serial.println("[HOST] ปิด AP แล้ว Station จะไล่หาช่องใหม่เองภายใน ~33 วินาที");
+}
+
+// เรียกทุกรอบของ loop() ห้ามบล็อก
+void serviceWifi(uint32_t now) {
+  // --- กำลังรอเกาะเราเตอร์ ---
+  if (staConnecting) {
+    if (WiFi.status() == WL_CONNECTED) { onStaConnected(); return; }
+    if (now - staAttemptStart >= STA_CONNECT_TIMEOUT_MS) {
+      Serial.println("[HOST] เกาะเราเตอร์ไม่สำเร็จ เปิด AP สำรอง");
+      startApMode();
+    }
+    return;
+  }
+
+  // --- ใช้งานผ่านเราเตอร์อยู่: เฝ้าดูว่าหลุดหรือยัง ---
+  if (netMode == NET_MODE_STA) {
+    if (WiFi.status() == WL_CONNECTED) {
+      staLostSince = 0;
+      lastStaRssi  = WiFi.RSSI();
+    } else {
+      if (staLostSince == 0) staLostSince = now;
+      else if (now - staLostSince >= STA_LOST_GRACE_MS) {
+        Serial.println("[HOST] เราเตอร์หลุดเกินเวลาผ่อนผัน เปิด AP สำรอง");
+        startApMode();
+        lastStaRetry = now;
+      }
+    }
+    return;
+  }
+
+  // --- ใช้ AP สำรองอยู่: ลองกลับไปเกาะเราเตอร์เป็นระยะ ---
+  // ลองเฉพาะตอนไม่มีใครต่อ AP อยู่ เพราะการสลับโหมดจะตัดการเชื่อมต่อของผู้ใช้
+  if (staConfigured && now - lastStaRetry >= STA_RETRY_INTERVAL_MS) {
+    lastStaRetry = now;
+    if (WiFi.softAPgetStationNum() == 0) {
+      Serial.println("[HOST] ไม่มีใครต่อ AP อยู่ ลองกลับไปเกาะเราเตอร์");
+      startStaMode();
+    }
+  }
+}
+
+// ชื่อเครือข่ายและที่อยู่ที่ผู้ใช้ต้องพิมพ์ เพื่อแสดงบนจอและหน้าเว็บ
+String netModeLabel() { return netMode == NET_MODE_STA ? "ROUTER" : "AP"; }
+IPAddress activeIP()  { return netMode == NET_MODE_STA ? WiFi.localIP() : WiFi.softAPIP(); }
 
 // ----------------------------------------------------------------------------
 // ค่าตั้งเตียง (เก็บถาวรใน NVS)
@@ -1372,7 +1573,12 @@ void updateHostOLED() {
 
     u8g2.setFont(u8g2_font_logisoso32_tf);
     String clockStr = getOledClockStr();
-    u8g2.drawStr(4, 56, clockStr.c_str());
+    u8g2.drawStr(4, 50, clockStr.c_str());
+
+    // ที่อยู่ที่พยาบาลต้องพิมพ์ลงเบราว์เซอร์ เปลี่ยนตามโหมดเครือข่าย
+    u8g2.setFont(u8g2_font_4x6_tf);
+    String addr = netModeLabel() + " " + activeIP().toString();
+    u8g2.drawStr((128 - (int)addr.length() * 4) / 2, 62, addr.c_str());
   }
   else if (currentOledPage == 0) {
     // หัวจอ: ชื่อหน้า + นาฬิกา (เลขจำนวนเตียงย้ายไปอยู่แถบล่างแล้ว ไม่ต้องบอกสองที่)
@@ -1438,6 +1644,10 @@ void updateHostOLED() {
   else if (currentOledPage == activeStationCount + 1) {
     u8g2.setFont(u8g2_font_5x8_tf);
     u8g2.drawStr(0, 7, "LINK DIAGNOSTIC");
+    {
+      String m = netModeLabel();
+      u8g2.drawStr(128 - (int)m.length() * 5, 7, m.c_str());
+    }
     u8g2.drawHLine(0, 9, 128);
 
     // ตารางเลขเตียง 1-8: ได้ยินไหม / MAC ท้าย 2 ไบต์ / คุณภาพลิงก์
@@ -1468,9 +1678,14 @@ void updateHostOLED() {
 
     u8g2.drawHLine(0, 54, 128);
     u8g2.setFont(u8g2_font_5x8_tf);
+    // คำเตือนสำคัญมาก่อนเสมอ ถ้าไม่มีคำเตือนจึงแสดงที่อยู่ที่ต้องพิมพ์
     if (anyIdConflict())            u8g2.drawStr(0, 62, "* = 2 NODES SAME ID!");
     else if (heardBeyondBedCount()) u8g2.drawStr(0, 62, "INVERTED = ADD MORE BEDS");
-    else                            u8g2.drawStr(0, 62, "ALL BED IDs UNIQUE");
+    else {
+      String line = activeIP().toString();
+      if (netMode == NET_MODE_STA) line += "  CH" + String(currentWifiChannel());
+      u8g2.drawStr(0, 62, line.c_str());
+    }
   }
 
   u8g2.sendBuffer();
@@ -1481,10 +1696,32 @@ void updateHostOLED() {
 // ----------------------------------------------------------------------------
 void handleApiData() {
   if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+
+  // นับว่ามีการเรียกถี่แค่ไหน แล้วบอกจังหวะ poll ที่เหมาะสมกลับไปให้หน้าเว็บ
+  // ผู้ใช้ยิ่งมาก ยิ่งยืดจังหวะ เพื่อไม่ให้ WebServer แย่งเวลาจากการรับ ESP-NOW
+  uint32_t nowMs = millis();
+  if (apiRateWindowAt == 0) apiRateWindowAt = nowMs;
+  apiDataHits++;
+  if (nowMs - apiRateWindowAt >= API_RATE_WINDOW_MS) {
+    // จำนวนหน้าเว็บที่เปิดอยู่โดยประมาณ = อัตราเรียกต่อวินาที x จังหวะ poll ปัจจุบัน
+    float perSec  = (float)apiDataHits * 1000.0f / (float)(nowMs - apiRateWindowAt);
+    float viewers = perSec * (float)currentPollMs / 1000.0f;
+    uint16_t want = (uint16_t)(POLL_MS_MIN * (viewers < 2.0f ? 1.0f : viewers / 2.0f));
+    if (want < POLL_MS_MIN) want = POLL_MS_MIN;
+    if (want > POLL_MS_MAX) want = POLL_MS_MAX;
+    currentPollMs   = want;
+    apiDataHits     = 0;
+    apiRateWindowAt = nowMs;
+  }
+
   String json;
   json.reserve(3000);
   json = "{";
   json += "\"version\":\"" APP_VERSION "\",";
+  json += "\"pollMs\":" + String(currentPollMs) + ",";
+  json += "\"netMode\":\"" + netModeLabel() + "\",";
+  json += "\"netIP\":\"" + activeIP().toString() + "\",";
+  json += "\"staRssi\":" + String(lastStaRssi) + ",";
   json += "\"activeCount\":" + String(activeStationCount) + ",";
   json += "\"currentTime\":\"" + getFormattedDateTime() + "\",";
   json += "\"timeSynced\":" + String(isTimeSynced ? "true" : "false") + ",";
@@ -1729,6 +1966,11 @@ void handleDownloadCSV() {
 void handleApStatus() {
   if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
   String json = "{";
+  json += "\"mode\":\"" + netModeLabel() + "\",";
+  json += "\"ip\":\"" + activeIP().toString() + "\",";
+  json += "\"staSsid\":\"" + jsonEscape(staSsid.c_str()) + "\",";
+  json += "\"staConfigured\":" + String(staConfigured ? "true" : "false") + ",";
+  json += "\"staRssi\":" + String(lastStaRssi) + ",";
   json += "\"ssid\":\"" + jsonEscape(default_ap_ssid) + "\",";
   json += "\"password\":\"" + jsonEscape(default_ap_pass) + "\",";
   json += "\"apIP\":\"" + WiFi.softAPIP().toString() + "\",";
@@ -1739,6 +1981,80 @@ void handleApStatus() {
   json += "\"timeSynced\":" + String(isTimeSynced ? "true" : "false") + ",";
   json += "\"timeApprox\":" + String(isTimeApprox ? "true" : "false");
   json += "}";
+  server.send(200, "application/json", json);
+}
+
+// ---------------------------------------------------------------------------
+// ตั้งค่าเราเตอร์
+// ---------------------------------------------------------------------------
+bool scanBorrowedStaIface = false;   // ยืมอินเทอร์เฟซ STA มาสแกนชั่วคราวขณะอยู่โหมด AP
+
+void handleWifiConfig() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  if (!server.hasArg("ssid")) { server.send(400, "text/plain", "Missing ssid"); return; }
+  String ssid = server.arg("ssid");
+  String pass = server.hasArg("pass") ? server.arg("pass") : "";
+  if (ssid.length() == 0 || ssid.length() > 32 || pass.length() > 63) {
+    server.send(400, "text/plain", "Bad ssid/pass");
+    return;
+  }
+  saveWifiConfig(ssid, pass);
+  // ตอบกลับก่อน แล้วค่อยสลับโหมด เพราะการสลับจะตัดการเชื่อมต่อของเครื่องที่ส่งคำสั่งมา
+  server.send(200, "application/json", "{\"ok\":true,\"willSwitch\":true}");
+  delay(150);                        // ให้แพ็กเก็ตตอบกลับออกไปให้พ้นก่อน
+  startStaMode();
+}
+
+void handleWifiForget() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+  clearWifiConfig();
+  server.send(200, "application/json", "{\"ok\":true}");
+  delay(150);
+  startApMode();
+}
+
+// สแกนแบบไม่บล็อก: เรียกครั้งแรกเริ่มสแกนแล้วตอบ scanning:true
+// หน้าเว็บเรียกซ้ำจนกว่าจะได้รายการ
+void handleWifiScan() {
+  if (!server.authenticate(web_username, web_password)) return server.requestAuthentication();
+
+  int n = WiFi.scanComplete();
+
+  if (n == WIFI_SCAN_FAILED) {           // ยังไม่เริ่ม -> เริ่มสแกน
+    if (netMode == NET_MODE_AP && !scanBorrowedStaIface) {
+      // โหมด AP ล้วนสแกนไม่ได้ ต้องเปิดอินเทอร์เฟซ STA ร่วมชั่วคราว
+      WiFi.mode(WIFI_AP_STA);
+      forceRadioAwake();
+      scanBorrowedStaIface = true;
+    }
+    WiFi.scanNetworks(true);             // true = ไม่บล็อก
+    server.send(200, "application/json", "{\"scanning\":true}");
+    return;
+  }
+  if (n == WIFI_SCAN_RUNNING) {
+    server.send(200, "application/json", "{\"scanning\":true}");
+    return;
+  }
+
+  String json = "{\"scanning\":false,\"nets\":[";
+  int shown = 0;
+  for (int i = 0; i < n && shown < 20; i++) {
+    if (WiFi.SSID(i).length() == 0) continue;
+    if (shown) json += ",";
+    json += "{\"ssid\":\"" + jsonEscape(WiFi.SSID(i).c_str()) + "\",";
+    json += "\"rssi\":" + String(WiFi.RSSI(i)) + ",";
+    json += "\"lock\":" + String(WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "false" : "true") + "}";
+    shown++;
+  }
+  json += "]}";
+  WiFi.scanDelete();
+
+  if (scanBorrowedStaIface) {            // คืนโหมดเดิม
+    scanBorrowedStaIface = false;
+    WiFi.mode(WIFI_AP);
+    forceRadioAwake();
+    attachEspNowPeer(WIFI_IF_AP);
+  }
   server.send(200, "application/json", json);
 }
 
@@ -1855,20 +2171,16 @@ void setup() {
 
   loadBedConfigs();
 
-  // ---------------- Wi-Fi: Access Point อย่างเดียว (ไม่ต่อ Router / ไม่ใช้อินเทอร์เน็ต) ----------------
-  // โหมด AP ล้วนทำให้ช่องสัญญาณนิ่ง ESP-NOW ไม่หลุด และรองรับผู้ใช้พร้อมกันได้หลายเครื่อง
+  // ---------------- Wi-Fi: เกาะเราเตอร์เป็นหลัก ถ้าต่อไม่ได้ค่อยเปิด AP สำรอง ----------------
+  // เมื่อสมาร์ตโฟนต่อผ่านเราเตอร์ Host ไม่ต้องทำหน้าที่ Access Point
+  // จึงไม่มีภาระ beacon การจัดการ client และบัฟเฟอร์ต่อเครื่อง
+  // ESP-NOW ใช้ช่องของเราเตอร์ได้เลย เพราะ Station ไล่หาช่องเองอัตโนมัติ
   WiFi.persistent(false);
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(default_ap_ssid, default_ap_pass, ESPNOW_CHANNEL, 0, AP_MAX_CLIENTS);
-  WiFi.setSleep(false);
-  esp_wifi_set_ps(WIFI_PS_NONE);   // ไม่ประหยัดพลังงาน = ตอบสนองหลายเครื่องพร้อมกันได้นิ่ง
+  loadWifiConfig();
 
-  // ล้างรหัส Wi-Fi ของ Router ที่เคยบันทึกไว้ในเฟิร์มแวร์รุ่นก่อน (ไม่ใช้แล้ว) ครั้งเดียว
-  preferences.begin("wifi-config", false);
-  if (preferences.isKey("ssid")) preferences.clear();
-  preferences.end();
-
-  Serial.printf("[HOST] SoftAP ready, channel = %d, max clients = %d\n", currentWifiChannel(), AP_MAX_CLIENTS);
+  // เปิด ESP-NOW ก่อน แล้วค่อยเลือกโหมด เพราะ attachEspNowPeer() ต้องใช้
+  WiFi.mode(staConfigured ? WIFI_STA : WIFI_AP);
+  forceRadioAwake();
 
   MDNS.begin("iv-monitor");
 
@@ -1877,14 +2189,11 @@ void setup() {
     Serial.println("[HOST] ESP-NOW init FAILED");
   } else {
     esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
-
-    esp_now_peer_info_t peerInfo = {};
-    memcpy(peerInfo.peer_addr, broadcastAddress, 6);
-    peerInfo.channel = 0;            // 0 = ใช้ช่องปัจจุบันของอินเทอร์เฟซ
-    peerInfo.ifidx   = WIFI_IF_AP;    // ไม่มี STA แล้ว จึงส่งผ่านอินเทอร์เฟซ AP
-    peerInfo.encrypt = false;
-    esp_now_add_peer(&peerInfo);
   }
+
+  // เลือกโหมดเครือข่าย (ทั้งสองทางจะผูก peer ของ ESP-NOW ให้ตรงอินเทอร์เฟซเอง)
+  if (staConfigured) startStaMode();
+  else               startApMode();
 
   server.on("/", handleRoot);
   server.on("/api/data", handleApiData);
@@ -1896,6 +2205,9 @@ void setup() {
   server.on("/api/logs/csv", handleDownloadCSV);
   server.on("/api/ap/status", handleApStatus);
   server.on("/api/time/set", HTTP_POST, handleTimeSet);
+  server.on("/api/wifi/scan", handleWifiScan);
+  server.on("/api/wifi/config", HTTP_POST, handleWifiConfig);
+  server.on("/api/wifi/forget", HTTP_POST, handleWifiForget);
   server.begin();
 
   lastUserActivityTime = millis();
@@ -1926,6 +2238,9 @@ void loop() {
     lastTimeBackup = currentMillis;
     backupClockToNvs();
   }
+
+  // ---- ดูแลการเชื่อมต่อเครือข่าย (ไม่บล็อก) ----
+  serviceWifi(currentMillis);
 
   // ---- ประเมินเตือนทุก 1 วินาที (การส่ง Sync แยกไปอยู่ที่ตัวจัดคิวด้านล่าง) ----
   if (currentMillis - lastSyncBroadcastTime >= SYNC_INTERVAL_MS) {

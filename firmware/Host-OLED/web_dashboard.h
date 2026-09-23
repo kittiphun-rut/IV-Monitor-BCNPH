@@ -746,12 +746,31 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
     <div class="modal-content">
       <h3 style="margin-bottom: 14px; font-size:17.5px;">📶 จุดเชื่อมต่อของเครื่อง Host</h3>
       <div style="margin-bottom: 15px; background:#f7fafc; padding:12px; border-radius:10px; font-size:14.5px;" id="apDetailBox">กำลังโหลด...</div>
-      <div style="background:#fffaf0; border-left:4px solid #dd6b20; padding:11px 13px; border-radius:8px; font-size:13.5px; line-height:1.65;">
-        เครื่องนี้ทำงานเป็นจุดเชื่อมต่อในตัว <b>ไม่ต้องต่อ Wi-Fi ของโรงพยาบาลหรืออินเทอร์เน็ต</b><br>
-        ให้มือถือ/แท็บเล็ตเชื่อมต่อ Wi-Fi ชื่อข้างบน แล้วเปิด <b>http://192.168.4.1</b><br>
-        หากมือถือแจ้งว่า "ไม่มีอินเทอร์เน็ต" ให้เลือก <b>ใช้งานต่อ / ยังคงเชื่อมต่อ</b>
+      <div id="apHintBox" style="background:#fffaf0; border-left:4px solid #dd6b20; padding:11px 13px; border-radius:8px; font-size:13.5px; line-height:1.65;"></div>
+
+      <h4 style="margin:18px 0 8px; font-size:15.5px;">เชื่อมต่อผ่าน Wi-Fi ของโรงพยาบาล</h4>
+      <div style="background:#ebf8ff; border-left:4px solid #3182ce; padding:11px 13px; border-radius:8px; font-size:13.5px; line-height:1.65; margin-bottom:12px;">
+        เมื่อเครื่องนี้เกาะ Wi-Fi ของโรงพยาบาลได้ <b>จุดเชื่อมต่อในตัวจะถูกปิด</b>
+        ทำให้เครื่องไม่ต้องแบกภาระดูแลมือถือทีละเครื่อง รองรับผู้ใช้พร้อมกันได้มากขึ้น
+        และเดินดูได้ทั่วหอผู้ป่วยตามสัญญาณของโรงพยาบาล<br>
+        <b>ถ้าต่อไม่ได้หรือ Wi-Fi โรงพยาบาลล่ม เครื่องจะเปิดจุดเชื่อมต่อในตัวกลับมาเองอัตโนมัติ</b>
       </div>
-      <div class="btn-group" style="margin-top:14px;"><button class="btn btn-secondary" onclick="closeApModal()">ปิด</button></div>
+
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <select id="wifiSsidList" style="flex:1; padding:9px; border:1.5px solid #cbd5e0; border-radius:8px; font-size:14px;">
+          <option value="">— เลือกเครือข่าย หรือพิมพ์ชื่อเอง —</option>
+        </select>
+        <button class="btn btn-secondary" style="width:auto; padding:0 14px;" onclick="scanWifi()">🔍 ค้นหา</button>
+      </div>
+      <input type="text" id="wifiSsidInput" placeholder="ชื่อเครือข่าย (SSID)" style="width:100%; padding:9px; border:1.5px solid #cbd5e0; border-radius:8px; font-size:14px; margin-bottom:8px;">
+      <input type="password" id="wifiPassInput" placeholder="รหัสผ่าน Wi-Fi" style="width:100%; padding:9px; border:1.5px solid #cbd5e0; border-radius:8px; font-size:14px;">
+      <div id="wifiScanNote" style="font-size:12.5px; color:#718096; margin-top:6px;"></div>
+
+      <div class="btn-group" style="margin-top:14px;">
+        <button class="btn btn-primary" onclick="saveWifi()">บันทึกและเชื่อมต่อ</button>
+        <button class="btn btn-secondary" onclick="forgetWifi()">ลืมเครือข่ายนี้</button>
+        <button class="btn btn-secondary" onclick="closeApModal()">ปิด</button>
+      </div>
     </div>
   </div>
 
@@ -1633,14 +1652,81 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
     function closeApModal() { document.getElementById('apModal').style.display = 'none'; }
     function fetchApStatus() {
       fetch('/api/ap/status').then(r=>r.json()).then(d=>{
-        document.getElementById('apDetailBox').innerHTML =
-          `<b>ชื่อ Wi-Fi (SSID):</b> ${d.ssid}<br>` +
-          `<b>รหัสผ่าน:</b> ${d.password}<br>` +
-          `<b>ที่อยู่หน้าเว็บ:</b> http://${d.apIP}<br>` +
-          `<b>ช่องสัญญาณ:</b> ${d.channel}<br>` +
-          `<b>อุปกรณ์ที่ต่ออยู่:</b> ${d.clients} / ${d.maxClients} เครื่อง<br>` +
-          `<b>เวลาเครื่อง:</b> ${d.currentTime}`;
+        const viaRouter = (d.mode === 'ROUTER');
+        let html = `<b>โหมดที่ใช้อยู่:</b> ${viaRouter ? '🌐 ผ่าน Wi-Fi ของโรงพยาบาล' : '📶 จุดเชื่อมต่อในตัวของเครื่อง'}<br>`;
+        if (viaRouter) {
+          html += `<b>เครือข่ายที่เกาะอยู่:</b> ${d.staSsid}<br>` +
+                  `<b>ที่อยู่หน้าเว็บ:</b> http://${d.ip}<br>` +
+                  `<b>ความแรงสัญญาณ:</b> ${d.staRssi} dBm<br>`;
+        } else {
+          html += `<b>ชื่อ Wi-Fi (SSID):</b> ${d.ssid}<br>` +
+                  `<b>รหัสผ่าน:</b> ${d.password}<br>` +
+                  `<b>ที่อยู่หน้าเว็บ:</b> http://${d.apIP}<br>` +
+                  `<b>อุปกรณ์ที่ต่ออยู่:</b> ${d.clients} / ${d.maxClients} เครื่อง<br>`;
+        }
+        html += `<b>ช่องสัญญาณ:</b> ${d.channel}<br><b>เวลาเครื่อง:</b> ${d.currentTime}`;
+        document.getElementById('apDetailBox').innerHTML = html;
+
+        document.getElementById('apHintBox').innerHTML = viaRouter
+          ? 'ให้มือถือ/แท็บเล็ตต่อ Wi-Fi ของโรงพยาบาลตามปกติ แล้วเปิด <b>http://' + d.ip + '</b><br>' +
+            'ที่อยู่นี้ขึ้นอยู่กับเราเตอร์ ถ้าเปิดไม่ได้ให้ดูที่อยู่ล่าสุดจากหน้าจอของเครื่อง Host'
+          : 'เครื่องนี้ทำงานเป็นจุดเชื่อมต่อในตัว <b>ไม่ต้องต่อ Wi-Fi ของโรงพยาบาลหรืออินเทอร์เน็ต</b><br>' +
+            'ให้มือถือ/แท็บเล็ตเชื่อมต่อ Wi-Fi ชื่อข้างบน แล้วเปิด <b>http://' + d.apIP + '</b><br>' +
+            'หากมือถือแจ้งว่า "ไม่มีอินเทอร์เน็ต" ให้เลือก <b>ใช้งานต่อ / ยังคงเชื่อมต่อ</b>';
+
+        if (d.staConfigured && !document.getElementById('wifiSsidInput').value) {
+          document.getElementById('wifiSsidInput').value = d.staSsid;
+        }
       }).catch(e=>{ document.getElementById('apDetailBox').innerText = 'อ่านข้อมูลไม่สำเร็จ'; });
+    }
+
+    // ---- ตั้งค่าเราเตอร์ ----
+    // การค้นหาเครือข่ายทำแบบไม่บล็อก จึงต้องถามผลซ้ำจนกว่าจะเสร็จ
+    let wifiScanTries = 0;
+    function scanWifi() {
+      const note = document.getElementById('wifiScanNote');
+      note.innerText = 'กำลังค้นหาเครือข่าย... (ระหว่างนี้สัญญาณจากเตียงอาจสะดุดเล็กน้อย)';
+      wifiScanTries = 0;
+      pollWifiScan();
+    }
+    function pollWifiScan() {
+      fetch('/api/wifi/scan').then(r=>r.json()).then(d=>{
+        if (d.scanning) {
+          if (++wifiScanTries > 15) { document.getElementById('wifiScanNote').innerText = 'ค้นหานานผิดปกติ ลองใหม่อีกครั้ง'; return; }
+          setTimeout(pollWifiScan, 900);
+          return;
+        }
+        const sel = document.getElementById('wifiSsidList');
+        sel.innerHTML = '<option value="">— เลือกเครือข่าย หรือพิมพ์ชื่อเอง —</option>';
+        (d.nets || []).forEach(n => {
+          const o = document.createElement('option');
+          o.value = n.ssid;
+          o.text = `${n.ssid}  (${n.rssi} dBm)${n.lock ? ' 🔒' : ''}`;
+          sel.appendChild(o);
+        });
+        sel.onchange = () => { if (sel.value) document.getElementById('wifiSsidInput').value = sel.value; };
+        document.getElementById('wifiScanNote').innerText = `พบ ${(d.nets||[]).length} เครือข่าย`;
+      }).catch(e=>{ document.getElementById('wifiScanNote').innerText = 'ค้นหาไม่สำเร็จ'; });
+    }
+    function saveWifi() {
+      const ssid = document.getElementById('wifiSsidInput').value.trim();
+      const pass = document.getElementById('wifiPassInput').value;
+      if (!ssid) { alert('กรุณาระบุชื่อเครือข่าย'); return; }
+      if (!confirm('เครื่องจะสลับไปเกาะเครือข่าย "' + ssid + '"\n\n' +
+                   'จุดเชื่อมต่อในตัวจะถูกปิด หน้านี้จะหลุดชั่วคราว\n' +
+                   'ให้ต่อมือถือกับ Wi-Fi ของโรงพยาบาล แล้วเปิดที่อยู่ใหม่ที่แสดงบนจอเครื่อง Host\n\n' +
+                   'ถ้าเชื่อมต่อไม่สำเร็จภายใน 15 วินาที เครื่องจะเปิดจุดเชื่อมต่อในตัวกลับมาเอง')) return;
+      const body = new URLSearchParams({ ssid: ssid, pass: pass });
+      fetch('/api/wifi/config', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body })
+        .then(r=>r.json())
+        .then(()=>{ document.getElementById('wifiScanNote').innerText = 'ส่งคำสั่งแล้ว กำลังสลับเครือข่าย...'; })
+        .catch(e=>{ document.getElementById('wifiScanNote').innerText = 'ส่งคำสั่งแล้ว (หน้านี้หลุดตามคาด)'; });
+    }
+    function forgetWifi() {
+      if (!confirm('ลบรหัส Wi-Fi ของโรงพยาบาลออก แล้วกลับไปใช้จุดเชื่อมต่อในตัวถาวร?')) return;
+      fetch('/api/wifi/forget', { method:'POST' })
+        .then(()=>{ document.getElementById('wifiScanNote').innerText = 'ลบแล้ว กำลังเปิดจุดเชื่อมต่อในตัว...'; })
+        .catch(e=>{ document.getElementById('wifiScanNote').innerText = 'ส่งคำสั่งแล้ว'; });
     }
 
     // ตั้งเวลาให้ Host จากนาฬิกาของเครื่องที่เปิดหน้านี้ (ใช้แทน NTP เพราะไม่มีอินเทอร์เน็ต)
@@ -1649,8 +1735,19 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
       fetch(`/api/time/set?epoch=${epoch}`, {method:'POST'}).catch(e=>console.log(e));
     }
 
-    setInterval(() => {
-      if (document.hidden) return;   // ไม่ดึงข้อมูลเมื่อสลับแท็บ/ปิดจอ ลดภาระเมื่อมีผู้ใช้หลายเครื่อง
+    // ---- วงรอบดึงข้อมูล ----
+    // ใช้ setTimeout ต่อกันเป็นทอด ๆ แทน setInterval เพราะสองเหตุผล
+    //   1) Host บอกจังหวะที่เหมาะสมมาใน pollMs ได้ ยิ่งมีคนเปิดหน้านี้พร้อมกันมาก
+    //      Host จะยืดจังหวะให้เอง ไม่ให้ WebServer แย่งเวลาจากการรับสัญญาณเตียง
+    //   2) ถ้าเครือข่ายช้า คำขอจะไม่ทับถมกันเป็นคิว เพราะรอบถัดไปเริ่มหลังรอบนี้จบแล้ว
+    let pollTimer = null;
+    let pollMs = 1000;
+    function scheduleNextPoll() {
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(pollData, pollMs);
+    }
+    function pollData() {
+      if (document.hidden) { scheduleNextPoll(); return; }   // สลับแท็บ/ปิดจอ = ไม่ต้องดึง
       fetch('/api/data')
         .then(res => res.json())
         .then(data => {
@@ -1680,14 +1777,19 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
           const vb = document.getElementById('versionBadge');
           if (vb && data.version) vb.innerText = 'v' + data.version;   // (5) อ่านเวอร์ชันจริงจาก Host
           document.getElementById('netStatusSubtitle').innerText =
-            `AP: 192.168.4.1 · CH ${data.channel} · อุปกรณ์ ${data.apClients}/${data.apMaxClients} เครื่อง`;
+            (data.netMode === 'ROUTER'
+              ? `ผ่าน Wi-Fi โรงพยาบาล: ${data.netIP} · CH ${data.channel} · สัญญาณ ${data.staRssi} dBm`
+              : `AP: ${data.netIP} · CH ${data.channel} · อุปกรณ์ ${data.apClients}/${data.apMaxClients} เครื่อง`)
+            + (pollMs > 1000 ? ` · รีเฟรชทุก ${(pollMs/1000).toFixed(0)} วิ (ผู้ใช้มาก)` : '');
           lastHostData = data;
+          if (data.pollMs) pollMs = data.pollMs;
           syncConfigsFromHost(data.stations);
           renderStations(data.stations);
           updateHostCfgNote();
         })
-        .catch(err => console.log(err));
-    }, 1000);
+        .catch(err => console.log(err))
+        .finally(() => scheduleNextPoll());
+    }
 
     setInterval(() => {
       if (document.getElementById('tab-graphs').classList.contains('active')) renderGraphs();
@@ -1696,6 +1798,7 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
 
     renderTabs();
     loadBedToForm(1);
+    pollData();          // เริ่มวงรอบดึงข้อมูลทันที แล้วต่อทอดด้วย scheduleNextPoll()
     syncHostTime();
     setInterval(syncHostTime, 600000);   // ปรับเวลาให้ตรงทุก 10 นาที ระหว่างที่ยังเปิดหน้านี้
   </script>

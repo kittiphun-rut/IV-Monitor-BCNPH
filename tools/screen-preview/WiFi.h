@@ -7,13 +7,34 @@
 #define WIFI_AP      2
 #define WIFI_AP_STA  3
 #define WL_CONNECTED 3
-class IPAddressStub { public: String toString() const { return String("192.168.4.1"); } };
+#define WL_DISCONNECTED 6
+#define WIFI_SCAN_RUNNING (-1)
+#define WIFI_SCAN_FAILED  (-2)
+#define WIFI_AUTH_OPEN    0
+class IPAddressStub {
+  String v;
+public:
+  IPAddressStub(const char* a = "192.168.4.1") : v(a) {}
+  String toString() const { return v; }
+};
+typedef IPAddressStub IPAddress;
 class WiFiClassStub {
 public:
   void mode(int) {}
   void persistent(bool) {}
   void setSleep(bool) {}
-  void disconnect(bool b = false) {}
+  void disconnect(bool wifioff = false, bool eraseap = false) {}
+  void softAPdisconnect(bool wifioff = false) {}
+  void begin(const char* ssid, const char* pass) {}
+  IPAddressStub localIP() { return IPAddressStub("192.168.1.42"); }
+  int  RSSI() { return -58; }
+  // ---- การสแกนแบบไม่บล็อก ----
+  int    scanNetworks(bool async = false) { return 2; }
+  int    scanComplete() { return 2; }
+  void   scanDelete() {}
+  String SSID(int i) { return String(i == 0 ? "WARD-WIFI" : "HOSPITAL-GUEST"); }
+  int    RSSI(int i) { return i == 0 ? -52 : -71; }
+  int    encryptionType(int i) { return i == 0 ? 3 : WIFI_AUTH_OPEN; }
   int  status() { return 0; }
   bool softAP(const char*, const char*, int ch = 1, int hidden = 0, int maxc = 4) { return true; }
   IPAddressStub softAPIP() { return IPAddressStub(); }

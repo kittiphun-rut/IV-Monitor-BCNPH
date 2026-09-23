@@ -23,4 +23,5 @@ shot live   live_monitor.png 2400
 shot graphs visual_graphs.png 1500
 shot logs   log_report.png   1300
 shot about  about.png        1200
+shot wifi   wifi_setup.png   1250
 echo "เสร็จแล้ว"
