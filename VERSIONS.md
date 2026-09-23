@@ -42,6 +42,7 @@ release/12-s7.7.2-h4.7.4
 release/13-s7.7.3-h4.7.5-lts7.5.4 
 release/14-s7.7.3-h4.7.5-touch4.9.2 
 release/15-s7.7.3-h4.7.6       
+release/16-s7.8.0-h4.7.7-lts7.5.5-tft4.8.1-touch4.9.3 
 ```
 
 > **branch เหล่านี้ห้ามแก้และห้าม push ทับ** ให้ถือเป็นหมุดเวลาอย่างเดียว
@@ -71,6 +72,7 @@ release/15-s7.7.3-h4.7.6
 | `release/13-s7.7.3-h4.7.5-lts7.5.4` | 7.7.3 | 7.5.4 | 4.7.5 | 4.8.0 | 4.9.0 | ❔ | [zip](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/archive/refs/heads/release/13-s7.7.3-h4.7.5-lts7.5.4.zip) | [`35ce57b`](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/tree/35ce57b99d51794fc28af44b2b59410ef8549180) | แก้สูตรคำนวณอัตราการไหลและบั๊กฝั่ง Host (Station 7.7.3/7.5.4, Host 4.7.5)<br><sub>12/9/2026</sub> |
 | `release/14-s7.7.3-h4.7.5-touch4.9.2` | 7.7.3 | 7.5.4 | 4.7.5 | 4.8.0 | 4.9.2 | ❔ | [zip](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/archive/refs/heads/release/14-s7.7.3-h4.7.5-touch4.9.2.zip) | [`8fdd598`](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/tree/8fdd598949b176f7e87b95b8bc019397581d9f64) | พอร์ตคุณสมบัติทั้งหมดจากรุ่นจอ OLED ลงรุ่นจอสัมผัส (Touch v4.9.2)<br><sub>23/9/2026</sub> |
 | `release/15-s7.7.3-h4.7.6` | 7.7.3 | 7.5.4 | **4.7.6** | 4.8.0 | 4.9.2 | ✅ | [zip](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/archive/refs/heads/release/15-s7.7.3-h4.7.6.zip) | [`ae0d061`](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/tree/ae0d061bd8abee1b0439f1e515dd912d57e068eb) | **นำการเชื่อมต่อเราเตอร์กลับมา** เกาะ Wi-Fi โรงพยาบาลเป็นหลักแล้วปิด AP เพื่อลดภาระซีพียู ต่อไม่ได้เปิด AP สำรองเอง · ปล่อยให้ ESP-NOW ใช้ช่องของเราเตอร์ (Station ไล่หาช่องเอง) · ค้นหาเครือข่ายแบบไม่บล็อก · หน้าเว็บปรับจังหวะรีเฟรชตามจำนวนผู้ใช้<br><sub>23/9/2026</sub> |
+| `release/16-s7.8.0-h4.7.7-lts7.5.5-tft4.8.1-touch4.9.3` | **7.8.0** | **7.5.5** | **4.7.7** | **4.8.1** | **4.9.3** | ✅ | [zip](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/archive/refs/heads/release/16-s7.8.0-h4.7.7-lts7.5.5-tft4.8.1-touch4.9.3.zip) | [`d58537c`](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/tree/d58537caa7ec975e28701feaec180c76a3fda8d9) | **แยกโค้ดวาดจอออกจากไฟล์หลักทั้ง 5 สาย** ไปไว้ใน `StationScreen.h` / `HostScreen.h` ย้าย 2,261 บรรทัด เป็นการย้ายที่อยู่ล้วน ๆ พิสูจน์ด้วยการเทียบภาพหน้าจอก่อน-หลังทีละพิกเซล เหมือนกันครบ 87 ภาพ · ตรึงนาฬิกาในตัวจำลองให้เรนเดอร์ซ้ำได้ · เพิ่ม `tools/split-check/`<br><sub>23/9/2026</sub> |
 
 **คอลัมน์คอมไพล์**
 ✅ = ชุดตรวจ ๙ ตัวใน `tools/` รันผ่านครบ ณ commit นั้น (คอมไพล์ด้วย g++ พร้อมตัวจำลอง

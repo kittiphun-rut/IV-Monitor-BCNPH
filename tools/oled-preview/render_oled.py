@@ -14,7 +14,10 @@ import os
 import sys
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 128, 64
+# ขนาดจอปรับได้ผ่านตัวแปรสภาพแวดล้อม เพราะโครงการนี้มีจอ OLED สองขนาด
+# 128x64 (SH1106 ของเครื่องส่วนกลาง) และ 72x40 (SSD1306 ของเครื่องประจำเตียงรุ่นบอร์ดเล็ก)
+W = int(os.environ.get("OLED_W", "128"))
+H = int(os.environ.get("OLED_H", "64"))
 MONO = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 MONO_B = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
 SANS_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"

@@ -60,10 +60,18 @@ class U8G2_SH1106_128X64_NONAME_F_HW_I2C {
     if (g_ops) fprintf(g_ops, "LINE %d %d %d %d %d\n", x0, y0, x1, y1, color_);
   }
 
- private:
+ protected:
   void emit(const char* op, int x, int y, int w, int h, int r) {
     if (g_ops) fprintf(g_ops, "%s %d %d %d %d %d %d\n", op, x, y, w, h, r, color_);
   }
   const char* font_ = "5x8";
   uint8_t color_ = 1;
+};
+
+// จอ 0.42" SSD1306 72x40 บนบอร์ด ESP32-C3 Super Mini
+// ใช้ตัวบันทึกคำสั่งชุดเดียวกัน ต่างแค่ลายเซ็นคอนสตรักเตอร์ (มีขา SCL/SDA ด้วย)
+class U8G2_SSD1306_72X40_ER_F_HW_I2C : public U8G2_SH1106_128X64_NONAME_F_HW_I2C {
+ public:
+  U8G2_SSD1306_72X40_ER_F_HW_I2C(int rot, uint8_t reset, int clock, int data)
+    : U8G2_SH1106_128X64_NONAME_F_HW_I2C(rot, reset) {}
 };
