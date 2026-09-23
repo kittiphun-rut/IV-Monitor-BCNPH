@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-src = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "firmware/ESP32-S3-Host-OLED-V_4_7_4"
+src = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "firmware/Host-OLED"
 out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).resolve().parent / "preview.html"
 
 text = (src / "web_dashboard.h").read_text(encoding="utf-8")

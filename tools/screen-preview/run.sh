@@ -6,7 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 OUT="${1:-../../docs/screens}"
-SKETCH="../../firmware/ESP32-S3-FlowSim-Lab/ESP32-S3-FlowSim-Lab.ino"
+SKETCH="../../firmware/FlowSim-Lab/FlowSim-Lab.ino"
 
 # ตรวจลำดับการประกาศชนิดข้อมูล (Arduino แทรก prototype ไว้ก่อนฟังก์ชันแรกของไฟล์)
 python3 ../check-ino-types.py "$SKETCH"

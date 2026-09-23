@@ -5,52 +5,23 @@
  * สถาบัน: วิทยาลัยพยาบาลบรมราชชนนี แพร่ คณะพยาบาลศาสตร์ สถาบันพระบรมราชชนก
  *
  * ระบบ: Central Host Gateway (เครื่องควบคุมและติดตามศูนย์กลาง)
- * เวอร์ชัน: 4.7.2-OLED (Protocol v3 — ใช้คู่กับ Bed Station 7.4.x / 7.5.x / 7.7.x)
- * บอร์ดประมวลผล: ESP32-S3 Dev Module (N16R8) + จอ 1.3" OLED (SH1106 I2C) + Passive Buzzer
+ * เวอร์ชัน: 4.8.0-TFT (Protocol v3 — ใช้คู่กับ Bed Station Firmware 7.4.x / 7.5.x)
+ * บอร์ดประมวลผล: ESP32-S3 Dev Module (N16R8) + จอสี TFT 2.8" (ST7789V SPI 240x320) + Passive Buzzer
  *
  * ผู้พัฒนาระบบ: นายกิตติพันธ์ รัตนคร (นักวิชาการคอมพิวเตอร์ มจร. วิทยาเขตแพร่)
  * อาจารย์ที่ปรึกษา: ดร.กรรณิการ์ กาศสมบูรณ์ (วิทยาลัยพยาบาลบรมราชชนนี แพร่)
  *
  * ---------------------------------------------------------------------------
- * เปลี่ยนใน V4.7.2-OLED: ปรับหน้าเว็บ Dashboard ตามที่พยาบาลขอมา
- *  1) สถานะปกติมี "กรอบสีเขียว" รอบการ์ดเตียง มองแวบเดียวรู้ว่าเตียงไหนเรียบร้อย
- *     (เดิมปกติไม่มีกรอบ ทำให้แยกจากเตียงออฟไลน์ด้วยสายตายาก)
- *  2) การเตือนใกล้หมดบอกเป็น "% ของสารน้ำ" แทนตัวเลข mL ที่ตั้งไว้
- *     และเพิ่มบรรทัด "เหลือในกระปุก ... mL" ในการ์ดทุกใบ (เดิมมีแต่ยอดที่ให้ไปแล้ว)
- *  3) เพิ่มแถบแจ้งเตือนรวมบนหน้า Live Monitor บอกว่าเตียงไหนเป็นอะไร
- *     ครอบคลุมทั้ง ไหลช้า / ไหลเร็ว / ไม่ไหล / ให้ครบแล้ว / เซนเซอร์ไม่จับหยด
- *     พร้อมแถบสีส้มแยกต่างหากสำหรับเตียงที่ใกล้หมด (เฝ้าดู ไม่ใช่เหตุวิกฤต)
- *  4) เสียงเตือนบนหน้าเว็บกระตุ้นความสนใจขึ้น — จากเสียงไซน์ 880 Hz ครั้งเดียว
- *     เป็นชุด 4 พัลส์สลับสองความถี่แบบรถพยาบาล ใช้คลื่นสี่เหลี่ยมที่มีฮาร์มอนิกมาก
- *     จึงแทรกผ่านเสียงรบกวนในหอผู้ป่วยได้ดีกว่า และปล่อยซ้ำทุก 2 วินาทีจนกว่าเหตุจะหาย
- *  5) ป้ายเวอร์ชันบนหัวหน้าเว็บอ่านจาก APP_VERSION จริง (เดิมค้างที่ v4.6.0)
- *
- *  ตรรกะการวัด การแจ้งเตือน และโปรโตคอล ESP-NOW ไม่เปลี่ยนแม้แต่ไบต์เดียว
- *
- * ---------------------------------------------------------------------------
- * เปลี่ยนใน V4.7.1-OLED: รองรับเครื่องประจำเตียงรุ่นใหม่ (v7.5.1 และ v7.7.0)
- *
- *  โครงสร้างแพ็กเก็ต ESP-NOW ของ Station v7.5.1 และ v7.7.0 เหมือน v7.4.x ทุกไบต์
- *  (struct_message 23 ไบต์ / struct_host_sync 20 ไบต์) และสูตรตัดสินสายพับก็สูตรเดียวกัน
- *  จึงใช้งานร่วมกันได้อยู่แล้วโดยไม่ต้องแก้โปรโตคอล — ตรวจซ้ำได้ด้วย tools/protocol-test
- *
- *  แต่มีช่องโหว่ที่เห็นชัดขึ้นเมื่อใช้กับ v7.7.0 ซึ่งมีสถานะ "เซนเซอร์ยังจับหยดไม่ได้"
- *  ในตัวเครื่องเอง ขณะที่ Host เดิมไม่มีสถานะนี้เลย:
- *
- *   เตียงที่ออนไลน์อยู่ กำลังนับอยู่ แต่เซนเซอร์ไม่เคยจับหยดได้สักหยดเดียว
- *   (วางเซนเซอร์ผิดตำแหน่ง สายหลุด เลนส์สกปรก) Host เดิมจะขึ้นว่า "ปกติ" ตลอดไป
- *   เพราะเงื่อนไขสายพับกำหนดว่าต้องเคยมีหยดมาก่อน (totalDrops == 0 -> ไม่เข้าเงื่อนไข)
- *   นี่คือความล้มเหลวแบบเงียบ ซึ่งอันตรายกว่าการแจ้งเตือนผิด เพราะพยาบาลเข้าใจว่า
- *   ระบบกำลังเฝ้าอยู่ ทั้งที่ไม่ได้นับอะไรเลย
- *
- *  สิ่งที่เพิ่ม
- *   - รหัสเตือนใหม่ ALERT_NO_SIGNAL (6) = "เซนเซอร์ยังไม่จับหยด" แยกจากสายพับชัดเจน
- *     เพราะสองอย่างนี้ให้พยาบาลไปดูคนละจุด (สายพับ = ดูสายน้ำเกลือ, ไม่มีสัญญาณ = ดูเซนเซอร์)
- *   - เงื่อนไข: ออนไลน์ + กำลังนับ + ยังไม่เคยมีหยดเลย + ต่อเนื่องเกิน NO_SIGNAL_MS
- *   - ถือเป็นเหตุวิกฤต จึงมีเสียงเตือนที่ Host และขึ้นบนจอ OLED / หน้าเว็บ / ไฟล์ CSV
- *   - **ไม่ส่งรหัสนี้ออกไปที่ Station** เพื่อความเข้ากันได้ย้อนหลังอย่างสมบูรณ์
- *     (Station รุ่นเก่าไม่รู้จักรหัส 6) ตอนส่ง Sync จะแปลงเป็น ALERT_NONE เสมอ
- *     เครื่องที่เตียงรุ่น v7.7.0 มีสถานะ CHECK SENSOR ของตัวเองอยู่แล้ว
+ * เปลี่ยนใน V4.8.0-TFT: เปลี่ยนจอ OLED 1.3" ขาวดำ -> จอสี TFT 2.8" (ST7789V 240x320)
+ *  - ใช้จอแนวนอน 320x240 ออกแบบหน้าจอใหม่แนวทาง "FOCUS"
+ *    ครึ่งซ้าย = เตียงที่ต้องดูตอนนี้ (ตัวเลขใหญ่ อ่านได้จากระยะไกล)
+ *    ครึ่งขวา  = รายการเตียงอื่นพร้อมอัตราไหลและแถบความคืบหน้า (ปรับขนาดแถวตามจำนวนเตียง)
+ *    แถบล่าง   = สรุปเหตุการณ์ที่ต้องทำตอนนี้
+ *  - เตียงที่ถูกเน้นเลือกอัตโนมัติ: เหตุวิกฤตมาก่อน ตามด้วยใกล้หมดถุง
+ *    กดปุ่ม PAGE เพื่อเลื่อนดูเตียงอื่นเองได้ (กลับเป็นอัตโนมัติเมื่อมีเหตุใหม่)
+ *  - มีจอเตือนเต็มจอสีแดงเมื่อเกิดเหตุวิกฤตและยังไม่พักเสียง
+ *  - ตัดไลบรารี U8g2 ออก ใช้ Adafruit GFX + ST7789 แทน (เฟิร์มแวร์นี้รองรับจอ TFT อย่างเดียว)
+ *  - ตรรกะการวัด การแจ้งเตือน ESP-NOW และหน้าเว็บทั้งหมดเหมือน V4.7.0 ทุกประการ
  *
  * ---------------------------------------------------------------------------
  * เปลี่ยนใน V4.7.0: ตัดระบบจัดการ Wi-Fi (Router/อินเทอร์เน็ต) ออกทั้งหมด
@@ -94,13 +65,14 @@
 #include <WebServer.h>
 #include <Preferences.h>
 #include <ESPmDNS.h>
-#include <U8g2lib.h>
-#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
+#include <SPI.h>
 #include <time.h>
 #include <sys/time.h>
 #include <driver/rtc_io.h>
 
-#define APP_VERSION         "4.7.4-OLED"
+#define APP_VERSION         "4.8.0-TFT"
 #define DEV_NAME            "กิตติพันธ์ รัตนคร"
 #define DEV_ROLE            "นักวิชาการคอมพิวเตอร์"
 #define DEV_INSTITUTION     "มหาวิทยาลัยมหาจุฬาลงกรณราชวิทยาลัย วิทยาเขตแพร่"
@@ -112,35 +84,32 @@
 #define POWER_BTN_PIN       4   // ปุ่มเปิด-ปิดหน้าจอ / พักเสียงเตือน (Snooze) — ต้องเป็น RTC GPIO (0-21)
 #define PAGE_BTN_PIN        5   // ปุ่มเปลี่ยนหน้าจอ / ดับเบิ้ลคลิกเรียก Screensaver
 #define BUZZER_PIN          7   // ขาต่อลำโพง Passive Buzzer
-#define OLED_SDA_PIN        8   // ขา I2C SDA จอ OLED
-#define OLED_SCL_PIN        9   // ขา I2C SCL จอ OLED
+
+// ---- จอ TFT 2.8" ST7789V (SPI 14 ขา ไม่มีทัช) ----
+// ต่อสาย: VCC->3V3, GND->GND, SCL/SCK->TFT_SCLK, SDA/MOSI->TFT_MOSI,
+//         RES->TFT_RST, DC->TFT_DC, CS->TFT_CS, BLK->TFT_BLK (หรือต่อ 3V3 ตลอดแล้วตั้ง -1)
+// หมายเหตุ: บอร์ด N16R8 ใช้ GPIO33-37 กับ PSRAM ห้ามนำมาใช้
+#define TFT_CS              10
+#define TFT_DC              9
+#define TFT_RST             8
+#define TFT_MOSI            11
+#define TFT_SCLK            12
+#define TFT_BLK             13  // -1 = ไม่ได้ต่อขาควบคุมไฟหน้าจอ
+#define TFT_ROTATION        1   // 1 = แนวนอน 320x240 (ถ้าภาพกลับหัวให้ใช้ 3)
 
 // ----------------------------------------------------------------------------
 // ค่าคงที่ของระบบสื่อสารและการแจ้งเตือน (ต้องตรงกับ Station)
 // ----------------------------------------------------------------------------
 #define ESPNOW_CHANNEL          1        // ช่อง SoftAP / ESP-NOW เริ่มต้น
-#define SYNC_INTERVAL_MS        1000     // แต่ละเตียงได้รับ Sync ครบ 1 ใบทุก 1 วินาที
-#define SYNC_SLOT_MIN_MS        60       // ช่องเวลาต่ำสุดระหว่างแพ็กเก็ต Sync สองใบ
-#define ONLINE_TIMEOUT_MS       8000     // ไม่ได้รับข้อมูลเกิน 8 วินาที = OFFLINE
-                                         // Station ส่งวินาทีละใบ ค่านี้จึงยอมให้หายติดกัน 8 ใบ
-                                         // (เดิม 5 วินาที = 5 ใบ ซึ่งน้อยเกินไปเมื่อมีหลายเตียง)
-#define LINK_WINDOW_MS          10000UL  // หน้าต่างวัดคุณภาพลิงก์ (คาดหวัง 10 ใบ)
-#define LINK_WEAK_PCT           60       // ต่ำกว่านี้ = ลิงก์อ่อน เตือนก่อนหลุดจริง
-#define ID_CONFLICT_WINDOW_MS   30000UL  // ช่วงเวลาที่นับการสลับ MAC ของเลขเตียงเดียวกัน
-#define ID_CONFLICT_MIN_FLIPS   4        // สลับเกินเท่านี้ใน 1 ช่วง = มีบอร์ดตั้งเลขซ้ำกันแน่
-#define HEARD_REMEMBER_MS       60000UL  // จำไว้ว่าเคยได้ยินเลขเตียงนี้นานเท่าใด
-#define OLED_ANIM_INTERVAL_MS   90       // ~11 เฟรม/วินาที ขณะมีหยดให้แสดง
-#define OLED_IDLE_INTERVAL_MS   400      // ไม่มีหยดให้แสดง
-#define OLED_I2C_HZ             400000   // 400 kHz = ตามสเปก SH1106 (เดิมใช้ค่าปริยาย 100 kHz)
-#define DROP_FALL_MS            240      // เวลาที่หยดหนึ่งหยดใช้ตกในแอนิเมชัน
+#define SYNC_INTERVAL_MS        1000     // ส่ง Sync ให้ Station ทุก 1 วินาที
+#define ONLINE_TIMEOUT_MS       5000     // ไม่ได้รับข้อมูลเกิน 5 วินาที = OFFLINE
 #define MIN_OCCLUSION_MS        8000     // เวลาต่ำสุดที่ไม่มีหยดก่อนถือว่าหยุดไหล
-#define NO_SIGNAL_MS            90000UL  // ติดต่อกันได้นานเท่านี้แต่ไม่เคยมีหยดเลย
-                                         // = เซนเซอร์ยังจับหยดไม่ได้ (ไม่ใช่สายพับ)
-                                         // 90 วินาที เผื่อเวลาพยาบาลจัดตำแหน่งเซนเซอร์เสร็จ
 #define MAX_OCCLUSION_MS        300000   // เพดานเวลาตัดสินหยุดไหล (อัตราต่ำมาก)
 #define RATE_DEVIATION_HOLD_MS  20000    // เร็ว/ช้าเกินต่อเนื่อง 20 วินาทีจึงเตือน
 #define SNOOZE_MS               120000   // พักเสียง 2 นาที
 #define NEAR_END_REMIND_MS      300000   // เตือนใกล้หมดซ้ำทุก 5 นาทีจนกว่าจะรับทราบ
+#define SCREENSAVER_IDLE_MS     300000   // ไม่มีการกดปุ่ม 5 นาที -> เข้าโหมดนาฬิกา
+#define MANUAL_FOCUS_HOLD_MS    60000    // เลือกเตียงเองแล้วคงไว้ 1 นาที ก่อนกลับเป็นอัตโนมัติ
 #define DEFAULT_NEAR_END_PCT    80       // เตือนเมื่อให้ไปแล้ว 80% ของปริมาตรตามแผน
 #define AP_MAX_CLIENTS          8        // จำนวนสมาร์ตโฟน/แท็บเล็ตที่ต่อพร้อมกันได้ (สูงสุด 10)
 #define TIME_BACKUP_INTERVAL_MS 600000   // สำรองเวลาปัจจุบันลง NVS ทุก 10 นาที
@@ -152,19 +121,9 @@
 #define ALERT_NEAR_END    3   // ให้ไปแล้วถึง % ที่ตั้ง (เตือนเบา ไม่ใช่เหตุวิกฤต)
 #define ALERT_COMPLETE    4   // ให้ครบตามแผนแล้ว
 #define ALERT_OCCLUSION   5   // สายพับ / หยุดไหล
-#define ALERT_NO_SIGNAL   6   // เซนเซอร์ยังไม่จับหยดเลย (คนละเรื่องกับสายพับ)
-                              // ใช้ภายใน Host เท่านั้น ไม่ส่งออกไปที่ Station
 
-// โหมดภาพของกระเปาะหยดบนจอ Host — ให้ตรงกับที่จอ Station แสดงในหน้า 1 IV BAG
-// (ประกาศไว้ตอนต้นไฟล์ เพราะ Arduino แทรก prototype ของฟังก์ชันไว้ก่อนส่วนแสดงผล)
-enum DripMode : uint8_t {
-  DRIP_FLOW = 0,     // กำลังไหล — มีหยดวิ่งลงมา
-  DRIP_PAUSED = 1,   // พยาบาลสั่งหยุดนับ — สัญลักษณ์ Pause เหมือนจอ Station
-  DRIP_ALERT = 2,    // สายพับ / เซนเซอร์ยังไม่จับหยด — เครื่องหมายตกใจ
-  DRIP_OFFLINE = 3   // ติดต่อเตียงไม่ได้ — กากบาท
-};
-
-U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+SPIClass SPI_TFT(FSPI);
+Adafruit_ST7789 tft = Adafruit_ST7789(&SPI_TFT, TFT_CS, TFT_DC, TFT_RST);
 
 const char *default_ap_ssid = "ESP32_Liquid_Monitor";
 const char *default_ap_pass = "12345678";
@@ -182,16 +141,43 @@ Preferences preferences;
 portMUX_TYPE dataMux = portMUX_INITIALIZER_UNLOCKED;
 
 uint8_t activeStationCount  = 5;
-uint8_t currentOledPage     = 0;
-bool oledDisplaySleeping    = false;
-bool oledScreensaverActive  = false;
+int  manualFocusBed         = -1;      // เตียงที่ผู้ใช้เลือกดูเอง (-1 = อัตโนมัติ)
+unsigned long manualFocusUntil = 0;
+bool displaySleeping        = false;
+bool screensaverActive      = false;
 bool isPowerOffProgressActive = false;
+
+// ---- โหมดของหน้าจอ ----
+#define UI_MODE_MAIN    0
+#define UI_MODE_ALARM   1
+#define UI_MODE_SAVER   2
+#define UI_MODE_POWER   3
+
+int   uiMode           = -1;
+int   uiFocusDrawn     = -1;
+int   uiRowsDrawn      = -1;
+String cacheClock      = "";
+String cacheTopRight   = "";
+String cacheFocusHead  = "";
+String cacheStatusWord = "";
+String cacheRate       = "";
+String cacheSetRate    = "";
+String cacheSummary    = "";
+String cacheBottom     = "";
+int    cachePct        = -999;
+String cacheSide[MAX_SUPPORTED_STATIONS];
+String cacheAlarmRate  = "";
+
 unsigned long lastUserActivityTime = 0;
 bool isTimeSynced           = false;   // ตั้งเวลาจากเครื่องผู้ใช้ผ่านหน้าเว็บแล้ว
 bool isTimeApprox           = false;   // กู้เวลาจากที่สำรองไว้ตอนบูต (ยังไม่ซิงก์ใหม่)
 unsigned long lastTimeBackup = 0;
 
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+// ---- สถานะของเตียงสำหรับการแสดงผล ----
+// ต้องประกาศไว้ตอนต้นไฟล์ เพราะ Arduino IDE แทรก prototype ของฟังก์ชันไว้ก่อนส่วนแสดงผล
+enum BedUiStatus { BU_NORMAL = 0, BU_FAST, BU_SLOW, BU_NOFLOW, BU_NEAREND, BU_DONE, BU_PAUSED, BU_OFFLINE };
 
 // ----------------------------------------------------------------------------
 // โครงสร้างข้อมูลรับ-ส่ง ESP-NOW (Protocol v2) — ต้องเหมือนกับ Station ทุกไบต์
@@ -268,25 +254,6 @@ struct StationData {
   float flowRate_ml_hr = 0.0;
   uint32_t msSinceLastDrop = 0;
   unsigned long lastRecvTime = 0;
-  unsigned long firstRecvTime = 0;   // ครั้งแรกที่ติดต่อกันได้ (ใช้ตรวจว่าเซนเซอร์ยังไม่จับหยด)
-
-  // ---- คุณภาพลิงก์: นับแพ็กเก็ตที่รับได้จริงเทียบกับที่ควรได้ ----
-  uint16_t rxWindowCount = 0;        // จำนวนใบที่รับได้ในหน้าต่างปัจจุบัน
-  uint8_t  linkPct = 0;              // 0-100 % ของแพ็กเก็ตที่ควรได้รับ
-  uint32_t rxTotal = 0;              // สะสมตั้งแต่เปิดเครื่อง (ไว้วินิจฉัย)
-
-  // ---- ล็อกเฟสแอนิเมชันหยดให้ตรงกับหยดจริงที่ Station วัดได้ ----
-  unsigned long lastDropAtMs = 0;    // เวลาโดยประมาณ (ฐานเวลา Host) ที่หยดล่าสุดตกลงมา
-
-  // ---- ตรวจจับ "สองบอร์ดตั้งเลขเตียงซ้ำกัน" ----
-  // Host แยกเตียงจาก stationId ในแพ็กเก็ตเท่านั้น ถ้าสองบอร์ดตั้งเลขเดียวกัน
-  // มันจะเขียนทับช่องเดียวกัน เตียงที่เหลือจึงขึ้น OFFLINE ทั้งที่บอร์ดทำงานปกติ
-  // อาการนี้มองจากจอ Station ไม่เห็นเลย เพราะทุกบอร์ดรับ Sync ของเลขนั้นได้เหมือนกัน
-  uint8_t  srcMac[6] = {0};
-  bool     macKnown = false;
-  uint8_t  idFlipCount = 0;          // จำนวนครั้งที่ MAC ต้นทางสลับในช่วงที่กำลังนับ
-  unsigned long idFlipWindowMs = 0;
-  bool     idConflict = false;
   uint8_t alertCode = ALERT_NONE;
   unsigned long deviationSince = 0;
   uint8_t nearEndPct = DEFAULT_NEAR_END_PCT;   // เก็บแยก key ใน NVS เพื่อไม่ให้ค่าตั้งเดิมหาย
@@ -304,14 +271,6 @@ unsigned long lastCalcTime           = 0;
 unsigned long lastMinuteLogTime      = 0;
 unsigned long lastOledUpdateTime     = 0;
 unsigned long lastSyncBroadcastTime  = 0;
-unsigned long lastSyncSlotTime       = 0;
-unsigned long lastLinkWindowTime     = 0;
-uint16_t      pendingSyncMask        = 0;   // บิตที่ 0 = เตียง 1 ... ต้องส่ง Sync ทันที
-uint8_t       syncRoundIdx           = 0;   // ตัวชี้ของการวนส่งตามรอบ
-uint32_t      syncSendFail           = 0;   // จำนวนครั้งที่ esp_now_send ไม่สำเร็จ (ไว้วินิจฉัย)
-
-// เลขเตียงที่ "เคยได้ยินจริง" ล่าสุด ใช้บอกว่ามีบอร์ดส่งเลขเกินจำนวนเตียงที่เปิดใช้อยู่หรือไม่
-unsigned long heardIdAt[MAX_SUPPORTED_STATIONS] = {0};
 unsigned long globalSnoozeUntil      = 0;
 uint32_t globalMinuteCounter         = 0;
 
@@ -323,7 +282,11 @@ unsigned long lastBuzzerAlarmTime    = 0;
 uint8_t nearChimeRemaining           = 0;
 unsigned long nearChimeNextBeep      = 0;
 
-void updateHostOLED();
+void updateHostDisplay();
+void setDisplaySleep(bool sleep);
+int  currentFocusBed();
+void drawPowerOffProgress(int pct);
+void drawGoodbyeScreen();
 
 // ----------------------------------------------------------------------------
 // ฟังก์ชันช่วย
@@ -334,14 +297,7 @@ uint8_t safeDropFactor(uint8_t df) {
 
 bool isCriticalAlert(uint8_t code) {
   return code == ALERT_TOO_FAST || code == ALERT_TOO_SLOW ||
-         code == ALERT_COMPLETE || code == ALERT_OCCLUSION ||
-         code == ALERT_NO_SIGNAL;
-}
-
-// รหัสที่ส่งออกไปให้ Station — Station รุ่นเก่าไม่รู้จัก ALERT_NO_SIGNAL
-// จึงต้องแปลงเป็น ALERT_NONE เสมอ เพื่อให้เข้ากันได้กับทุกรุ่นตั้งแต่ 7.4.x ขึ้นไป
-uint8_t alertCodeForStation(uint8_t code) {
-  return (code == ALERT_NO_SIGNAL) ? ALERT_NONE : code;
+         code == ALERT_COMPLETE || code == ALERT_OCCLUSION;
 }
 
 uint8_t safeNearPct(uint8_t p) {
@@ -370,48 +326,6 @@ uint32_t occlusionThresholdMs(float rateHr, uint8_t df) {
   return th;
 }
 
-// เตียงที่ออนไลน์และกำลังนับ แต่ไม่เคยมีหยดเลยตั้งแต่ติดต่อกันได้
-// แยกจากสายพับ เพราะสายพับคือ "เคยไหลแล้วหยุด" ส่วนอันนี้คือ "ไม่เคยเริ่มเลย"
-bool isStationNoSignal(int i) {
-  const StationData &s = stations[i];
-  if (!isStationOnline(i) || !s.isRunning) return false;
-  if (s.totalDrops > 0) return false;                 // เคยจับหยดได้แล้ว = ไม่ใช่กรณีนี้
-  if (s.firstRecvTime == 0) return false;
-  return (millis() - s.firstRecvTime) > NO_SIGNAL_MS;
-}
-
-// เตียงนี้มีมากกว่าหนึ่งบอร์ดส่งมาด้วยเลขเดียวกันหรือไม่
-bool hasIdConflict(int i) {
-  return stations[i].idConflict;
-}
-
-bool anyIdConflict() {
-  for (int i = 0; i < activeStationCount; i++) if (stations[i].idConflict) return true;
-  return false;
-}
-
-// เคยได้ยินเลขเตียงนี้ภายใน 1 นาทีที่ผ่านมาไหม (ใช้ได้แม้เลขเกินจำนวนเตียงที่เปิดใช้)
-bool heardStationId(int i) {
-  unsigned long t = heardIdAt[i];
-  return t != 0 && (millis() - t) < HEARD_REMEMBER_MS;
-}
-
-// มีบอร์ดส่งเลขเตียงเกินจำนวนที่เปิดใช้อยู่หรือไม่ — คืนเลขเตียงตัวแรกที่เจอ (0 = ไม่มี)
-uint8_t heardBeyondBedCount() {
-  for (int i = activeStationCount; i < MAX_SUPPORTED_STATIONS; i++) {
-    if (heardStationId(i)) return (uint8_t)(i + 1);
-  }
-  return 0;
-}
-
-// MAC ท้าย 3 ไบต์ พอให้แยกบอร์ดออกจากกันได้โดยไม่กินพื้นที่จอ
-String macTail(const StationData &s) {
-  if (!s.macKnown) return String("-");
-  char b[12];
-  snprintf(b, sizeof(b), "%02X:%02X:%02X", s.srcMac[3], s.srcMac[4], s.srcMac[5]);
-  return String(b);
-}
-
 bool isStationOccluded(int i) {
   const StationData &s = stations[i];
   if (!isStationOnline(i) || !s.isRunning || s.totalDrops == 0 || s.msSinceLastDrop == 0) return false;
@@ -427,7 +341,6 @@ const char* alertTextEn(uint8_t code) {
     case ALERT_NEAR_END:  return "NEXT BAG";
     case ALERT_COMPLETE:  return "BAG EMPTY";
     case ALERT_OCCLUSION: return "OCCLUSION";
-    case ALERT_NO_SIGNAL: return "NO SIGNAL";
     default:              return "NORMAL";
   }
 }
@@ -499,7 +412,7 @@ String getFormattedDateTime() {
   return String(buf);
 }
 
-String getOledClockStr() {
+String getDisplayClockStr() {
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo, 10)) return "--:--";
   char buf[12];
@@ -524,90 +437,32 @@ void backupClockToNvs() {
   preferences.end();
 }
 
-// ----------------------------------------------------------------------------
-// การส่ง Sync ให้ Station — แบบเฉลี่ยช่องเวลา ไม่มี delay() (ใหม่ใน v4.7.3)
-// ----------------------------------------------------------------------------
-// ของเดิมส่งรวดเดียว N ใบติดกัน คั่นด้วย delay(4) อยู่ใน loop() ทุก 1 วินาที
-// ผลคือ (1) loop() ถูกบล็อก 32-50 ms ทุกวินาที และ (2) คลื่นวิทยุถูกใช้เป็นช่วงกระชาก
-// ทับจังหวะที่ Station กำลังส่งข้อมูลกลับมาพอดี ยิ่งมีหลายเตียงยิ่งชนบ่อย
-// ของใหม่ส่งทีละใบ ห่างกันเท่า ๆ กันตลอดวินาที แต่ละเตียงยังได้รับครบ 1 ใบต่อวินาทีเหมือนเดิม
-uint16_t syncSlotIntervalMs() {
-  uint8_t n = (activeStationCount < 1) ? 1 : activeStationCount;
-  uint16_t slot = SYNC_INTERVAL_MS / n;
-  if (slot < SYNC_SLOT_MIN_MS) slot = SYNC_SLOT_MIN_MS;
-  return slot;
-}
-
-void sendSyncForStation(int i) {
-  if (i < 0 || i >= MAX_SUPPORTED_STATIONS) return;
-
+void broadcastSyncToNodes() {
   time_t now;
   time(&now);
+  uint8_t ch = currentWifiChannel();
 
-  struct_host_sync syncMsg = {};
-  syncMsg.epochTime    = (now > 1600000000) ? (uint32_t)now : 0;
-  syncMsg.isSynced     = (now > 1600000000) ? 1 : 0;
-  syncMsg.stationId    = i + 1;
-  syncMsg.targetRateHr = stations[i].cfg.targetRateHr;
-  syncMsg.totalPlanMl  = stations[i].cfg.planVolumeMl;
-  syncMsg.alertCode    = alertCodeForStation(stations[i].alertCode);  // กันรหัสที่ Station รุ่นเก่าไม่รู้จัก
-  syncMsg.dropFactor   = safeDropFactor(stations[i].cfg.dropFactor);
-  syncMsg.resetSeq     = stations[i].cfg.resetSeq;
-  syncMsg.hostChannel  = currentWifiChannel();
-  syncMsg.nearEndPct   = safeNearPct(stations[i].nearEndPct);
-  syncMsg.flags        = stations[i].nearEndAck ? 0x01 : 0x00;
+  for (int i = 0; i < activeStationCount; i++) {
+    struct_host_sync syncMsg = {};
+    syncMsg.epochTime    = (now > 1600000000) ? (uint32_t)now : 0;
+    syncMsg.isSynced     = (now > 1600000000) ? 1 : 0;
+    syncMsg.stationId    = i + 1;
+    syncMsg.targetRateHr = stations[i].cfg.targetRateHr;
+    syncMsg.totalPlanMl  = stations[i].cfg.planVolumeMl;
+    syncMsg.alertCode    = stations[i].alertCode;
+    syncMsg.dropFactor   = safeDropFactor(stations[i].cfg.dropFactor);
+    syncMsg.resetSeq     = stations[i].cfg.resetSeq;
+    syncMsg.hostChannel  = ch;
+    syncMsg.nearEndPct   = safeNearPct(stations[i].nearEndPct);
+    syncMsg.flags        = stations[i].nearEndAck ? 0x01 : 0x00;
 
-  // ไม่ส่งซ้ำและไม่ delay() เมื่อคิวส่งเต็ม เพราะรอบถัดไปมาถึงในอีกไม่กี่สิบมิลลิวินาทีอยู่แล้ว
-  if (esp_now_send(broadcastAddress, (uint8_t *)&syncMsg, sizeof(syncMsg)) != ESP_OK) syncSendFail++;
-}
-
-// ขอให้ส่ง Sync ของเตียงนี้ในช่องเวลาถัดไป (ใช้ตอนค่าตั้งเปลี่ยนหรือรหัสเตือนเปลี่ยน)
-void requestSyncNow(int idx) {
-  if (idx < 0 || idx >= MAX_SUPPORTED_STATIONS) return;
-  pendingSyncMask |= (uint16_t)(1u << idx);
-}
-
-void requestSyncAll() {
-  for (int i = 0; i < activeStationCount; i++) requestSyncNow(i);
-}
-
-// เรียกทุกรอบของ loop() — ส่งได้มากสุด 1 ใบต่อหนึ่งช่องเวลา จึงไม่กินเวลาในลูปเลย
-void serviceSyncScheduler() {
-  unsigned long now = millis();
-  if (now - lastSyncSlotTime < syncSlotIntervalMs()) return;
-  lastSyncSlotTime = now;
-
-  if (pendingSyncMask != 0) {                    // งานด่วนมาก่อน
-    for (int i = 0; i < MAX_SUPPORTED_STATIONS; i++) {
-      if (pendingSyncMask & (1u << i)) {
-        pendingSyncMask &= (uint16_t)~(1u << i);
-        sendSyncForStation(i);
-        return;
-      }
+    esp_err_t r = esp_now_send(broadcastAddress, (uint8_t *)&syncMsg, sizeof(syncMsg));
+    if (r != ESP_OK) {
+      delay(10);
+      esp_now_send(broadcastAddress, (uint8_t *)&syncMsg, sizeof(syncMsg));
     }
+    delay(4);
   }
-
-  if (activeStationCount < 1) return;
-  if (syncRoundIdx >= activeStationCount) syncRoundIdx = 0;
-  sendSyncForStation(syncRoundIdx);
-  syncRoundIdx = (uint8_t)((syncRoundIdx + 1) % activeStationCount);
-}
-
-// ปรับคุณภาพลิงก์ทุก 10 วินาที: ได้รับกี่ใบจาก 10 ใบที่ควรได้
-void serviceLinkQuality() {
-  unsigned long now = millis();
-  if (now - lastLinkWindowTime < LINK_WINDOW_MS) return;
-  lastLinkWindowTime = now;
-
-  const uint16_t expected = (uint16_t)(LINK_WINDOW_MS / SYNC_INTERVAL_MS);
-  portENTER_CRITICAL(&dataMux);
-  for (int i = 0; i < MAX_SUPPORTED_STATIONS; i++) {
-    uint16_t got = stations[i].rxWindowCount;
-    stations[i].rxWindowCount = 0;
-    uint16_t pct = (uint16_t)((got * 100UL) / expected);
-    stations[i].linkPct = (uint8_t)((pct > 100) ? 100 : pct);
-  }
-  portEXIT_CRITICAL(&dataMux);
 }
 
 float readHostBattery() {
@@ -659,22 +514,17 @@ void enterDeepSleepWaitPowerButton() {
 void powerOffSystem() {
   isPowerOffProgressActive = true;
 
-  u8g2.clearBuffer();
-  u8g2.setFont(u8g2_font_6x10_tf);
-  u8g2.drawStr(24, 24, "GOODBYE...");
-  u8g2.setFont(u8g2_font_5x8_tf);
-  u8g2.drawStr(12, 42, "Release BTN to OFF");
-  u8g2.drawStr(8, 56, "Hold 2s to Power ON");
-  u8g2.sendBuffer();
+  drawGoodbyeScreen();
 
   playShutdownMelody();
 
   while (digitalRead(POWER_BTN_PIN) == LOW) delay(20);
   delay(200);
 
-  u8g2.clearBuffer();
-  u8g2.sendBuffer();
-  u8g2.setPowerSave(1);
+  tft.fillScreen(0x0000);
+#if TFT_BLK >= 0
+  digitalWrite(TFT_BLK, LOW);
+#endif
 
   server.stop();
   esp_now_deinit();
@@ -694,7 +544,6 @@ void evaluateClinicalAlerts() {
   for (int i = 0; i < activeStationCount; i++) {
     StationData &s = stations[i];
     if (!isStationOnline(i) || !s.isRunning) {
-      if (s.alertCode != ALERT_NONE) requestSyncNow(i);   // ยกเลิกเตือนที่ Station ทันที
       s.alertCode = ALERT_NONE;
       s.deviationSince = 0;
       continue;
@@ -706,10 +555,7 @@ void evaluateClinicalAlerts() {
     float plan = s.cfg.planVolumeMl;
     uint8_t code = ALERT_NONE;
 
-    if (isStationNoSignal(i)) {
-      code = ALERT_NO_SIGNAL;         // ตรวจก่อนสายพับ เพราะยังไม่เคยมีหยดให้พับเลย
-      s.deviationSince = 0;
-    } else if (isStationOccluded(i)) {
+    if (isStationOccluded(i)) {
       code = ALERT_OCCLUSION;
       s.deviationSince = 0;
     } else if (plan > 0 && vol >= plan) {
@@ -731,8 +577,6 @@ void evaluateClinicalAlerts() {
       if (code == ALERT_NONE && plan > 0 && vol >= plan * (float)safeNearPct(s.nearEndPct) / 100.0f) code = ALERT_NEAR_END;
     }
 
-    // รหัสเตือนเปลี่ยน = ส่งให้ Station ในช่องเวลาถัดไป (<=125 ms) แทนที่จะรอครบรอบ
-    if (s.alertCode != code) requestSyncNow(i);
     s.alertCode = code;
     if (isCriticalAlert(code)) anyCritical = true;
   }
@@ -814,22 +658,13 @@ void checkSmartphonePowerButton() {
 
     unsigned long holdDuration = millis() - btnPressStart;
 
-    if (holdDuration >= 450 && !oledDisplaySleeping) {
+    if (holdDuration >= 450 && !displaySleeping) {
       isPowerOffProgressActive = true;
 
-      if (millis() - lastProgressFrameTime >= 30) {
+      if (millis() - lastProgressFrameTime >= 60) {
         lastProgressFrameTime = millis();
-        int progressWidth = map(holdDuration, 450, 2000, 0, 100);
-        if (progressWidth > 100) progressWidth = 100;
-
-        u8g2.clearBuffer();
-        u8g2.setFont(u8g2_font_6x10_tf);
-        u8g2.drawStr(16, 20, "POWER OFF ?");
-        u8g2.setFont(u8g2_font_5x8_tf);
-        u8g2.drawStr(10, 35, "Keep holding to OFF");
-        u8g2.drawFrame(14, 43, 100, 11);
-        u8g2.drawBox(14, 43, progressWidth, 11);
-        u8g2.sendBuffer();
+        int progressPct = map(holdDuration, 450, 2000, 0, 100);
+        drawPowerOffProgress(progressPct);
       }
     }
 
@@ -845,37 +680,37 @@ void checkSmartphonePowerButton() {
         globalSnoozeUntil = millis() + SNOOZE_MS;
         noTone(BUZZER_PIN);
         tone(BUZZER_PIN, 2200, 40);
-        if (oledDisplaySleeping) {
-          oledDisplaySleeping = false;
-          u8g2.setPowerSave(0);
-        }
-        oledScreensaverActive = false;
+        if (displaySleeping) setDisplaySleep(false);
+        screensaverActive = false;
         isPowerOffProgressActive = false;
-        updateHostOLED();
+        uiMode = -1;
+        updateHostDisplay();
       } else if (totalHoldTime < 400 && anyNearEndPending()) {
         // กดสั้นขณะมีเตือนใกล้หมดที่ยังไม่รับทราบ = รับทราบทุกเตียง
         acknowledgeAllNearEnd();
         tone(BUZZER_PIN, 2600, 40);
-        if (oledDisplaySleeping) { oledDisplaySleeping = false; u8g2.setPowerSave(0); }
-        oledScreensaverActive = false;
+        if (displaySleeping) setDisplaySleep(false);
+        screensaverActive = false;
         isPowerOffProgressActive = false;
-        updateHostOLED();
-      } else if (oledScreensaverActive) {
-        oledScreensaverActive = false;
+        uiMode = -1;
+        updateHostDisplay();
+      } else if (screensaverActive) {
+        screensaverActive = false;
         isPowerOffProgressActive = false;
-        updateHostOLED();
+        uiMode = -1;
+        updateHostDisplay();
       } else if (totalHoldTime < 400) {
-        oledDisplaySleeping = !oledDisplaySleeping;
-        u8g2.setPowerSave(oledDisplaySleeping ? 1 : 0);
+        setDisplaySleep(!displaySleeping);
         tone(BUZZER_PIN, 1800, 25);
-        if (!oledDisplaySleeping) {
+        if (!displaySleeping) {
           isPowerOffProgressActive = false;
-          updateHostOLED();
+          updateHostDisplay();
         }
       }
-      else if (isPowerOffProgressActive && !oledDisplaySleeping) {
+      else if (isPowerOffProgressActive && !displaySleeping) {
         isPowerOffProgressActive = false;
-        updateHostOLED();
+        uiMode = -1;
+        updateHostDisplay();
       }
       isPowerOffProgressActive = false;
       isHolding = false;
@@ -904,14 +739,20 @@ void checkPageButton() {
 
   if (clickCount > 0 && (now - lastReleaseTime > 280)) {
     lastUserActivityTime = now;
-    if (oledScreensaverActive) {
-      oledScreensaverActive = false;
+    if (displaySleeping) setDisplaySleep(false);
+    if (screensaverActive) {
+      screensaverActive = false;              // ปลุกจอก่อน
     } else if (clickCount >= 2) {
-      oledScreensaverActive = true;
+      screensaverActive = true;               // ดับเบิลคลิก = โหมดนาฬิกา
     } else {
-      currentOledPage = (currentOledPage + 1) % (activeStationCount + 2);   // +1 = หน้า LINK DIAG
+      // คลิกเดียว = เลื่อนไปดูเตียงถัดไปเอง (กลับเป็นอัตโนมัติเมื่อครบเวลาหรือมีเหตุใหม่)
+      int base = (manualFocusBed >= 0) ? manualFocusBed : currentFocusBed();
+      manualFocusBed = (base + 1) % activeStationCount;
+      manualFocusUntil = now + MANUAL_FOCUS_HOLD_MS;
+      tone(BUZZER_PIN, 2400, 15);
     }
-    updateHostOLED();
+    uiMode = -1;
+    updateHostDisplay();
     clickCount = 0;
   }
 }
@@ -933,38 +774,8 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingDataBytes, int len) {
   if (incoming.stationId < 1 || incoming.stationId > MAX_SUPPORTED_STATIONS) return;
 
   int idx = incoming.stationId - 1;
-
-#if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-  const uint8_t *src = (info && info->src_addr) ? info->src_addr : nullptr;
-#else
-  const uint8_t *src = mac;
-#endif
-
   portENTER_CRITICAL(&dataMux);
   StationData &s = stations[idx];
-
-  heardIdAt[idx] = millis();
-
-  // ---- ตรวจว่ามีสองบอร์ดตั้งเลขเตียงเดียวกันหรือไม่ ----
-  if (src != nullptr) {
-    if (!s.macKnown) {
-      memcpy(s.srcMac, src, 6);
-      s.macKnown = true;
-      s.idFlipWindowMs = heardIdAt[idx];
-    } else if (memcmp(s.srcMac, src, 6) != 0) {
-      memcpy(s.srcMac, src, 6);                 // จำตัวล่าสุดไว้
-      if (heardIdAt[idx] - s.idFlipWindowMs > ID_CONFLICT_WINDOW_MS) {
-        s.idFlipWindowMs = heardIdAt[idx];      // เริ่มนับช่วงใหม่
-        s.idFlipCount = 0;
-      }
-      if (s.idFlipCount < 255) s.idFlipCount++;
-      if (s.idFlipCount >= ID_CONFLICT_MIN_FLIPS) s.idConflict = true;
-    } else if (heardIdAt[idx] - s.idFlipWindowMs > ID_CONFLICT_WINDOW_MS) {
-      s.idFlipWindowMs = heardIdAt[idx];        // เงียบมานาน = ล้างสถานะเดิม
-      s.idFlipCount = 0;
-      s.idConflict = false;
-    }
-  }
 
   // นับหยดรายนาทีจากผลต่าง totalDrops (แพ็กเก็ตหายก็ไม่ทำให้หยดหาย)
   if (s.hasBaseline) {
@@ -986,20 +797,6 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingDataBytes, int len) {
   s.msSinceLastDrop = incoming.msSinceLastDrop;
   s.totalVolumeMl   = (float)s.totalDrops / (float)safeDropFactor(s.cfg.dropFactor);
   s.lastRecvTime    = millis();
-  if (s.rxWindowCount < 0xFFFF) s.rxWindowCount++;
-  s.rxTotal++;
-
-  // ---- ล็อกเฟสแอนิเมชันหยด ----
-  // Station บอกมาว่า "หยดล่าสุดผ่านมาแล้วกี่มิลลิวินาที" จึงย้อนกลับไปหาเวลาที่หยดนั้นตก
-  // ในฐานเวลาของ Host ได้ แอนิเมชันบนจอ Host จึงเดินตรงจังหวะกับหยดจริงที่เตียงนั้น
-  if (incoming.msSinceLastDrop > 0 && incoming.msSinceLastDrop < 600000UL) {
-    s.lastDropAtMs = s.lastRecvTime - incoming.msSinceLastDrop;
-  }
-
-  if (s.firstRecvTime == 0) s.firstRecvTime = s.lastRecvTime;
-  // ตราบใดที่ยังมีหยดเข้ามา ให้เลื่อนเวลาอ้างอิงตาม เมื่อกด "เริ่มถุงใหม่" แล้วตัวนับกลับเป็น 0
-  // ตัวจับเวลา 90 วินาทีจึงเริ่มนับจากจังหวะรีเซ็ต ไม่ใช่จากตอนเปิดเครื่อง
-  if (s.totalDrops > 0) s.firstRecvTime = s.lastRecvTime;
   if ((incoming.flags & 0x01) && s.cfg.planVolumeMl > 0) s.nearEndAck = true;
 
   if (s.trialCase.active) {
@@ -1015,458 +812,513 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingDataBytes, int len) {
 // ----------------------------------------------------------------------------
 // Host OLED Display & Block-Style UI Renderer
 // ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-// แอนิเมชันหยดน้ำเกลือบนจอ OLED (ใหม่ใน v4.7.3)
-// ----------------------------------------------------------------------------
-// หลักคิด: ไม่ได้ "เดา" จังหวะหยดเอง แต่ล็อกเฟสกับหยดจริงที่ Station วัดได้
-//   - Station ส่ง msSinceLastDrop มาทุกวินาที -> ย้อนกลับไปได้ว่าหยดล่าสุดตกเมื่อใด
-//   - คาบการหยดคำนวณจากอัตราไหลจริง: 3600000 / (mL/h x หยดต่อ mL)
-// ผลคือหยดที่เห็นบนจอ Host ตรงจังหวะกับหยดที่ตกจริงในกระเปาะของเตียงนั้น
-// และเมื่อ Station หยุด/สายพับ ภาพจะเปลี่ยนเป็นสัญลักษณ์ชุดเดียวกับที่จอ Station ใช้
+// ============================================================================
+// ส่วนแสดงผลบนจอ TFT 2.8" (ST7789V 240x320 ใช้แนวนอน 320x240)
+//   หน้าหลัก FOCUS : เตียงที่ต้องดูตอนนี้ตัวใหญ่ครึ่งจอซ้าย + รายการเตียงอื่นด้านขวา
+//   จอเตือนเต็มจอ  : เมื่อมีเหตุวิกฤตและยังไม่พักเสียง
+//   Screensaver    : นาฬิกาใหญ่เมื่อไม่มีการใช้งาน
+// วาดเฉพาะส่วนที่ค่าเปลี่ยน เพื่อไม่ให้จอกะพริบและไม่กิน CPU ตอนรับ ESP-NOW
+// ============================================================================
 
-DripMode dripModeOf(int i) {
-  if (!isStationOnline(i)) return DRIP_OFFLINE;
+// ---- สีที่ใช้บนจอ (RGB565) ----
+#define C_BG        0x0000
+#define C_CARD      0x18C5   // การ์ดพื้นเทาเข้ม
+#define C_BAR       0x2104   // รางแถบความคืบหน้า
+#define C_OFFCARD   0x1082   // การ์ดเตียงออฟไลน์/ยังไม่ใช้งาน
+#define C_TOPBAR    0x0A49   // แถบบนสุด
+#define C_LINE      0x39E7
+#define C_DIM       0x8410
+#define C_WHITE     0xFFFF
+#define C_GREEN     0x2FEB
+#define C_CYAN      0x07FF
+#define C_YELLOW    0xFFE0
+#define C_ORANGE    0xFD20
+#define C_RED       0xF800
+#define C_SKY       0x5DFF
+
+BedUiStatus bedUiStatus(int i) {
+  if (!isStationOnline(i)) return BU_OFFLINE;
   const StationData &s = stations[i];
-  if (!s.isRunning) return DRIP_PAUSED;
-  if (s.alertCode == ALERT_OCCLUSION || s.alertCode == ALERT_NO_SIGNAL) return DRIP_ALERT;
-  return DRIP_FLOW;
+  if (!s.isRunning) return BU_PAUSED;
+  switch (s.alertCode) {
+    case ALERT_OCCLUSION: return BU_NOFLOW;
+    case ALERT_TOO_FAST:  return BU_FAST;
+    case ALERT_TOO_SLOW:  return BU_SLOW;
+    case ALERT_COMPLETE:  return BU_DONE;
+    case ALERT_NEAR_END:  return BU_NEAREND;
+    default:              return BU_NORMAL;
+  }
 }
 
-// คาบการหยดที่วัดได้จริง (มิลลิวินาทีต่อหนึ่งหยด) — 0 = ยังคำนวณไม่ได้
-uint32_t dripPeriodMs(int i) {
-  const StationData &s = stations[i];
-  float dropsPerHr = s.flowRate_ml_hr * (float)safeDropFactor(s.cfg.dropFactor);
-  if (dropsPerHr < 1.0f) return 0;
-  uint32_t p = (uint32_t)(3600000.0f / dropsPerHr);
-  if (p < 150) p = 150;        // เร็วกว่านี้ตามนุษย์ก็แยกไม่ออกอยู่ดี
-  if (p > 20000) p = 20000;
-  return p;
+uint16_t bedColor(BedUiStatus s) {
+  switch (s) {
+    case BU_NORMAL:  return C_GREEN;
+    case BU_FAST:    return C_ORANGE;
+    case BU_SLOW:    return C_YELLOW;
+    case BU_NOFLOW:  return C_RED;
+    case BU_NEAREND: return C_ORANGE;
+    case BU_DONE:    return C_CYAN;
+    case BU_PAUSED:  return C_SKY;
+    default:         return C_LINE;
+  }
 }
 
-// เฟสของแอนิเมชัน:  0..100 = กำลังตก (% ของระยะทาง)
-//                   -1     = ยังไม่ถึงหยดถัดไป
-//                   -2     = เพิ่งตกถึงผิวน้ำ (วาดคลื่นกระเพื่อม)
-int dripAnimPhase(int i) {
-  if (dripModeOf(i) != DRIP_FLOW) return -1;
+const char* bedWord(BedUiStatus s) {
+  switch (s) {
+    case BU_NORMAL:  return "NORMAL";
+    case BU_FAST:    return "TOO FAST";
+    case BU_SLOW:    return "TOO SLOW";
+    case BU_NOFLOW:  return "NO FLOW";
+    case BU_NEAREND: return "NEXT BAG";
+    case BU_DONE:    return "COMPLETE";
+    case BU_PAUSED:  return "PAUSED";
+    default:         return "OFFLINE";
+  }
+}
+
+bool bedIsAlarm(BedUiStatus s) {
+  return s == BU_FAST || s == BU_SLOW || s == BU_NOFLOW || s == BU_DONE;
+}
+
+// ---- ตัวช่วยวางข้อความ (ฟอนต์มาตรฐาน: 1 ตัวอักษร = 6xsize กว้าง, 8xsize สูง) ----
+void textAt(const String &s, int x, int y, uint8_t size, uint16_t col, uint16_t bg) {
+  tft.setTextSize(size);
+  tft.setTextColor(col, bg);
+  tft.setCursor(x, y);
+  tft.print(s);
+}
+
+void textRight(const String &s, int xRight, int y, uint8_t size, uint16_t col, uint16_t bg) {
+  textAt(s, xRight - (int)s.length() * 6 * size, y, size, col, bg);
+}
+
+void textCenterIn(const String &s, int x, int w, int y, uint8_t size, uint16_t col, uint16_t bg) {
+  textAt(s, x + (w - (int)s.length() * 6 * size) / 2, y, size, col, bg);
+}
+
+String padTo(const String &s, unsigned int width) {
+  String out = s;
+  while (out.length() < width) out += ' ';
+  return out;
+}
+
+void drawProgressBar(int x, int y, int w, int h, int pct, uint16_t fill) {
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  tft.fillRoundRect(x, y, w, h, h / 2, C_BAR);
+  int fw = w * pct / 100;
+  if (fw >= h) tft.fillRoundRect(x, y, fw, h, h / 2, fill);
+  else if (fw > 0) tft.fillRect(x, y, fw, h, fill);
+}
+
+void drawWifiIcon(int x, int y, int clients) {
+  int h[4] = {3, 6, 9, 12};
+  for (int i = 0; i < 4; i++) tft.fillRect(x + i * 4, y + (12 - h[i]), 3, h[i], (clients > i) ? C_GREEN : C_LINE);
+}
+
+void drawBatteryIcon(int x, int y, int pct) {
+  tft.drawRoundRect(x, y, 22, 11, 2, C_DIM);
+  tft.fillRect(x + 22, y + 3, 2, 5, C_DIM);
+  tft.fillRect(x + 2, y + 2, 18, 7, C_BG);
+  uint16_t c = (pct <= 20) ? C_RED : (pct <= 50 ? C_YELLOW : C_GREEN);
+  int w = (18 * pct) / 100;
+  if (w > 0) tft.fillRect(x + 2, y + 2, w, 7, c);
+}
+
+// ---- ข้อมูลของเตียงที่ใช้บ่อย ----
+int bedPct(int i) {
   const StationData &s = stations[i];
-  uint32_t period = dripPeriodMs(i);
-  if (period == 0 || s.lastDropAtMs == 0) return -1;
+  if (s.cfg.planVolumeMl <= 0) return -1;
+  int p = (int)(s.totalVolumeMl * 100.0f / s.cfg.planVolumeMl + 0.5f);
+  return (p > 100) ? 100 : p;
+}
 
-  uint32_t fall = DROP_FALL_MS;
-  if (fall > period * 3 / 4) fall = period * 3 / 4;   // หยดถี่ = ตกเร็วขึ้น ไม่ให้ซ้อนกัน
-  if (fall < 40) fall = 40;
+int bedMinutesLeft(int i) {
+  const StationData &s = stations[i];
+  if (s.cfg.planVolumeMl <= 0 || !isStationOnline(i) || !s.isRunning) return -1;
+  if (s.alertCode == ALERT_OCCLUSION) return -1;   // สายพับ/ไม่มีการไหล คำนวณเวลาที่เหลือไม่ได้
+  float left = s.cfg.planVolumeMl - s.totalVolumeMl;
+  if (left < 0) left = 0;
+  float rate = (s.flowRate_ml_hr > 5.0f) ? s.flowRate_ml_hr : s.cfg.targetRateHr;
+  if (rate <= 0) return -1;
+  return (int)((left / rate) * 60.0f);
+}
 
-  uint32_t phase = (uint32_t)(millis() - s.lastDropAtMs) % period;
-  if (phase < fall) return (int)((phase * 100UL) / fall);
-  if (phase < fall + 120) return -2;
+// เตียงที่ควรถูกเน้น: เหตุวิกฤตมาก่อน ตามด้วยใกล้หมดถุง ไม่มีเลยจึงใช้เตียงที่ผู้ใช้เลือกไว้
+int autoFocusBed() {
+  for (int i = 0; i < activeStationCount; i++) if (bedIsAlarm(bedUiStatus(i))) return i;
+  for (int i = 0; i < activeStationCount; i++)
+    if (stations[i].alertCode == ALERT_NEAR_END && !stations[i].nearEndAck) return i;
   return -1;
 }
 
-// มีเตียงไหนกำลังหยดอยู่บ้างไหม — ใช้ตัดสินว่าต้องรีเฟรชจอถี่หรือไม่
-// v4.7.4: กระเปาะหยดเหลืออยู่เฉพาะหน้ารายละเอียดของแต่ละเตียง
-// หน้ารวมจึงไม่ต้องรีเฟรชถี่อีกต่อไป ประหยัดทั้งบัส I2C และเวลาในลูป
-bool anyBedDripping() {
-  int idx = currentOledPage - 1;
-  if (idx < 0 || idx >= activeStationCount) return false;
-  return dripModeOf(idx) == DRIP_FLOW && dripPeriodMs(idx) > 0;
+int currentFocusBed() {
+  int a = autoFocusBed();
+  if (a >= 0) return a;
+  if (manualFocusBed >= 0 && manualFocusBed < activeStationCount) return manualFocusBed;
+  return 0;
 }
 
-// กระเปาะขนาดจิ๋ว กว้าง 6 px สำหรับการ์ดเตียงในหน้ารวม (h ตั้งแต่ 6 px ขึ้นไป)
-void drawDripMini(int x, int y, int h, int i) {
-  if (h < 6) h = 6;
-  u8g2.drawFrame(x, y, 6, h);               // ตัวกระเปาะ
-  u8g2.drawBox(x + 2, y + 1, 2, 1);         // หัวหยด
+// ---------------------------------------------------------------- ผังหน้าจอ
+#define SCR_W       320
+#define SCR_H       240
+#define TOPBAR_H    24
+#define PANEL_X     5
+#define PANEL_Y     30
+#define PANEL_W     190
+#define PANEL_H     188
+#define SIDE_X      200
+#define SIDE_W      115
+#define BOTBAR_Y    222
+#define BOTBAR_H    18
 
-  switch (dripModeOf(i)) {
-    case DRIP_OFFLINE:
-      u8g2.drawLine(x + 1, y + 2, x + 4, y + h - 3);
-      u8g2.drawLine(x + 4, y + 2, x + 1, y + h - 3);
-      return;
-    case DRIP_PAUSED:
-      u8g2.drawVLine(x + 1, y + 2, h - 4);
-      u8g2.drawVLine(x + 4, y + 2, h - 4);
-      return;
-    case DRIP_ALERT:
-      u8g2.drawVLine(x + 2, y + 2, h - 5);
-      u8g2.drawBox(x + 2, y + h - 2, 2, 1);
-      return;
-    default:
-      break;
-  }
-
-  int poolY = y + h - 3;
-  u8g2.drawBox(x + 1, poolY, 4, 2);         // ผิวน้ำในกระเปาะ
-
-  int pct = dripAnimPhase(i);
-  if (pct == -2) {                          // กระเพื่อมตอนหยดถึงผิวน้ำ
-    u8g2.drawHLine(x + 1, poolY - 1, 4);
-  } else if (pct >= 0) {
-    int top = y + 2;
-    int bot = poolY - 2;
-    if (bot < top) bot = top;
-    int dy  = top + ((bot - top) * pct) / 100;
-    u8g2.drawBox(x + 2, dy, 2, 2);          // หยดที่กำลังตก
-  }
+void resetUiCaches() {
+  cacheClock = ""; cacheTopRight = ""; cacheFocusHead = ""; cacheStatusWord = "";
+  cacheRate = ""; cacheSetRate = ""; cacheSummary = ""; cacheBottom = ""; cacheAlarmRate = "";
+  cachePct = -999;
+  for (int i = 0; i < MAX_SUPPORTED_STATIONS; i++) cacheSide[i] = "";
+  uiFocusDrawn = -1;
+  uiRowsDrawn = -1;
 }
 
-// กระเปาะเต็มรูปแบบ กว้าง 15 px — ใช้ในหน้า 1-2 เตียง และหน้ารายละเอียด
-void drawDripChamber(int x, int y, int h, int i) {
-  u8g2.drawRFrame(x, y, 15, h, 3);
-  u8g2.drawBox(x + 6, y + 2, 3, 3);         // หัวหยด
+// ---- แถบบนสุด: ชื่อเครื่อง | นาฬิกา | จำนวนเครื่องที่ต่อ Wi-Fi + แบตเตอรี่ ----
+void drawTopBarFramework() {
+  tft.fillRect(0, 0, SCR_W, TOPBAR_H, C_TOPBAR);
+  tft.fillRect(0, TOPBAR_H, SCR_W, 2, C_LINE);
+  textAt("SMART IV HOST", 8, 8, 1, C_SKY, C_TOPBAR);
+}
 
-  DripMode m = dripModeOf(i);
-  int poolTop = y + h - 9;
-
-  if (m == DRIP_OFFLINE) {
-    u8g2.drawLine(x + 4, y + 10, x + 10, y + h - 6);
-    u8g2.drawLine(x + 10, y + 10, x + 4, y + h - 6);
-    return;
+void updateTopBar() {
+  String clockStr = getDisplayClockStr();
+  if (clockStr != cacheClock) {
+    cacheClock = clockStr;
+    textCenterIn(clockStr, 0, SCR_W, 6, 2, isTimeApprox ? C_YELLOW : C_WHITE, C_TOPBAR);
   }
-  if (m == DRIP_PAUSED) {
-    u8g2.drawBox(x + 4, y + 11, 2, h - 20);
-    u8g2.drawBox(x + 9, y + 11, 2, h - 20);
-    return;
-  }
-  if (m == DRIP_ALERT) {
-    u8g2.drawBox(x + 7, y + 10, 2, h - 22);
-    u8g2.drawBox(x + 7, y + h - 10, 2, 2);
-    return;
-  }
-
-  u8g2.drawBox(x + 2, poolTop, 11, 7);      // น้ำที่ก้นกระเปาะ
-  int pct = dripAnimPhase(i);
-  if (pct == -2) {
-    u8g2.setDrawColor(0);                   // คลื่นกระเพื่อมบนผิวน้ำ
-    u8g2.drawHLine(x + 3, poolTop + 1, 9);
-    u8g2.setDrawColor(1);
-    u8g2.drawHLine(x + 2, poolTop - 1, 11);
-  } else if (pct >= 0) {
-    int top = y + 7;
-    int bot = poolTop - 3;
-    int dy  = top + ((bot - top) * pct) / 100;
-    u8g2.drawBox(x + 6, dy, 3, 3);
+  String right = String(WiFi.softAPgetStationNum()) + ":" + String(hostBatteryPct / 5);
+  if (right != cacheTopRight) {
+    cacheTopRight = right;
+    drawWifiIcon(SCR_W - 52, 6, (int)WiFi.softAPgetStationNum());
+    drawBatteryIcon(SCR_W - 30, 7, hostBatteryPct);
   }
 }
 
-// คำสถานะสั้น ๆ ที่พยาบาลอ่านจบในแวบเดียว (อังกฤษ เพราะฟอนต์ในจอไม่มีตัวไทย)
-const char* shortStatusOf(int i) {
-  const StationData &s = stations[i];
-  if (!isStationOnline(i))      return "OFFLINE";
-  if (s.idConflict)             return "ID DUP";
-  if (!s.isRunning)             return "PAUSE";
-  switch (s.alertCode) {
-    case ALERT_TOO_FAST:  return "FAST";
-    case ALERT_TOO_SLOW:  return "SLOW";
-    case ALERT_OCCLUSION: return "STOP";
-    case ALERT_NO_SIGNAL: return "NO DRIP";
-    case ALERT_COMPLETE:  return "DONE";
-    case ALERT_NEAR_END:  return s.nearEndAck ? "NEAR" : "NEW BAG";
-    default:              return "OK";
-  }
-}
-
-// เวอร์ชันสั้นไม่เกิน 4 ตัวอักษร สำหรับการ์ดในหน้ารวมที่มีที่จำกัด
-// ต้องไม่เกิน 4 ตัว ไม่เช่นนั้นจะไปทับตัวเลขอัตราไหล
-const char* gridStatusOf(int i) {
-  const StationData &s = stations[i];
-  if (!isStationOnline(i))      return "OFF";
-  if (s.idConflict)             return "DUP!";
-  if (!s.isRunning)             return "PAUS";
-  switch (s.alertCode) {
-    case ALERT_TOO_FAST:  return "FAST";
-    case ALERT_TOO_SLOW:  return "SLOW";
-    case ALERT_OCCLUSION: return "STOP";
-    case ALERT_NO_SIGNAL: return "SENS";
-    case ALERT_COMPLETE:  return "DONE";
-    case ALERT_NEAR_END:  return s.nearEndAck ? "near" : "BAG!";
-    default:              return "OK";
-  }
-}
-
-// เตียงนี้ต้องให้คนไปดูหรือไม่ (ใช้ตัดสินว่าจะทำการ์ดเป็นแถบทึบ)
-bool bedNeedsAttention(int i) {
-  const StationData &s = stations[i];
-  if (!isStationOnline(i)) return true;
-  if (s.idConflict) return true;
-  return s.isRunning && isCriticalAlert(s.alertCode);
-}
-
-// ----------------------------------------------------------------------------
-// หน้ารวมทุกเตียง — เน้นอ่านจากระยะไกล
-// ----------------------------------------------------------------------------
-// v4.7.4 ตัดสิ่งที่มองไม่เห็นจริงบนจอ 128x64 ออก: ไม่มีกระเปาะหยด ไม่มีปริมาตรสะสม
-// เหลือสามอย่างที่ตัดสินใจได้ทันที — เลขเตียง / อัตราไหล / คำสถานะ
-// แล้วใช้พื้นที่ที่เหลือขยายฟอนต์จาก 4x6 เป็น 6x10 (3-6 เตียง) และ 5x8 (7-8 เตียง)
-// กระเปาะหยดย้ายไปอยู่หน้ารายละเอียดของแต่ละเตียงแทน ซึ่งมีที่ให้วาดใหญ่พอจะเห็นจริง
-void renderBlockStyleGrid() {
-  int topY = 11;
-  int bottomY = 53;
-  int totalH = bottomY - topY;
-
-  int onlineCount = 0;
-  int alarmBed = 0;
-  uint8_t alarmCode = ALERT_NONE;
-
+// ---- แถบสรุปเหตุการณ์ด้านล่าง ----
+void updateBottomBar() {
+  int alarm = -1, near = -1;
   for (int i = 0; i < activeStationCount; i++) {
-    if (isStationOnline(i)) onlineCount++;
-    if (alarmBed == 0 && isCriticalAlert(stations[i].alertCode)) {
-      alarmBed = i + 1;
-      alarmCode = stations[i].alertCode;
-    }
+    if (alarm < 0 && bedIsAlarm(bedUiStatus(i))) alarm = i;
+    if (near < 0 && stations[i].alertCode == ALERT_NEAR_END && !stations[i].nearEndAck) near = i;
   }
+  int online = 0;
+  for (int i = 0; i < activeStationCount; i++) if (isStationOnline(i)) online++;
 
-  if (activeStationCount == 1) {
-    u8g2.drawRFrame(0, topY + 1, 128, totalH - 1, 3);
-    bool online = isStationOnline(0);
-
-    if (!online || !stations[0].isRunning) {
-      u8g2.setFont(u8g2_font_logisoso16_tf);
-      u8g2.drawStr(14, topY + 30, online ? "PAUSED" : "OFFLINE");
-    } else {
-      char rBuf[16];
-      snprintf(rBuf, sizeof(rBuf), "%.0f", stations[0].flowRate_ml_hr);
-      u8g2.setFont(u8g2_font_logisoso32_tf);
-      u8g2.drawStr(8, topY + 36, rBuf);
-      u8g2.setFont(u8g2_font_6x10_tf);
-      u8g2.drawStr(78, topY + 22, "mL/h");
-      u8g2.setFont(u8g2_font_7x13_tf);
-      u8g2.drawStr(78, topY + 36, shortStatusOf(0));
-    }
+  char buf[48];
+  uint16_t bg, fg;
+  if (alarm >= 0) {
+    snprintf(buf, sizeof(buf), "! BED %02d  %s  -  CHECK NOW", alarm + 1, alertTextEn(stations[alarm].alertCode));
+    bg = C_RED; fg = C_WHITE;
+  } else if (near >= 0) {
+    snprintf(buf, sizeof(buf), "BED %02d  PREPARE NEXT BAG", near + 1);
+    bg = C_ORANGE; fg = C_BG;
+  } else {
+    snprintf(buf, sizeof(buf), "ALL NORMAL   ONLINE %d/%d", online, activeStationCount);
+    bg = C_CARD; fg = C_GREEN;
   }
-  else if (activeStationCount == 2) {
-    int cardW = 62;
-    for (int i = 0; i < 2; i++) {
-      int x = (i == 0) ? 0 : 66;
-      u8g2.drawRFrame(x, topY + 1, cardW, totalH - 1, 2);
+  String line = String(buf);
+  if (line == cacheBottom) return;
+  cacheBottom = line;
+  tft.fillRect(0, BOTBAR_Y, SCR_W, BOTBAR_H, bg);
+  textCenterIn(line, 0, SCR_W, BOTBAR_Y + 5, 1, fg, bg);
+}
 
-      char idStr[10];
-      snprintf(idStr, sizeof(idStr), "BED %d", i + 1);
-      u8g2.setFont(u8g2_font_5x8_tf);
-      u8g2.drawStr(x + 4, topY + 11, idStr);
+// ---- รายการเตียงด้านขวา ----
+void drawSideRow(int idx, int y, int rowH) {
+  BedUiStatus st = bedUiStatus(idx);
+  const StationData &s = stations[idx];
+  bool dim = (st == BU_OFFLINE);
+  uint16_t card = dim ? C_OFFCARD : C_CARD;
+  uint16_t sc = bedColor(st);
 
-      if (!isStationOnline(i) || !stations[i].isRunning) {
-        u8g2.setFont(u8g2_font_7x13_tf);
-        u8g2.drawStr(x + 4, topY + 27, isStationOnline(i) ? "PAUSE" : "OFF");
-      } else {
-        char rBuf[16];
-        snprintf(rBuf, sizeof(rBuf), "%.0f", stations[i].flowRate_ml_hr);
-        u8g2.setFont(u8g2_font_logisoso16_tf);
-        u8g2.drawStr(x + 4, topY + 29, rBuf);
-        u8g2.setFont(u8g2_font_5x8_tf);
-        u8g2.drawStr(x + 40, topY + 29, "mL/h");
-      }
+  tft.fillRoundRect(SIDE_X, y, SIDE_W, rowH, 4, card);
+  tft.fillRect(SIDE_X, y, 4, rowH, sc);
 
-      u8g2.setFont(u8g2_font_6x10_tf);
-      u8g2.drawStr(x + 4, topY + 39, shortStatusOf(i));
-    }
-  }
-  else {
-    int cardW = 62;
-    int rows = (activeStationCount + 1) / 2;
-    int rowH = (rows <= 3) ? 14 : 10;   // 3-6 เตียง = 3 แถว, 7-8 เตียง = 4 แถว
-    bool bigFont = (rowH == 14);
+  char bed[8];
+  snprintf(bed, sizeof(bed), "B%02d", idx + 1);
+  String rateStr;
+  if (st == BU_OFFLINE)     rateStr = "OFF";
+  else if (st == BU_PAUSED) rateStr = "||";
+  else                      rateStr = String((int)(s.flowRate_ml_hr + 0.5f));
 
-    for (int i = 0; i < activeStationCount; i++) {
-      int col = i % 2;
-      int row = i / 2;
-      int x = (col == 0) ? 0 : 65;
-      int y = topY + row * rowH;
-      int textY = y + (bigFont ? 10 : 7);
-
-      bool attn = bedNeedsAttention(i);
-
-      // เตียงที่ต้องไปดู = การ์ดทึบทั้งใบ มองเห็นได้จากท้ายห้อง
-      if (attn) { u8g2.drawRBox(x, y, cardW, rowH - 1, 2); u8g2.setDrawColor(0); }
-      else      { u8g2.drawRFrame(x, y, cardW, rowH - 1, 2); }
-
-      u8g2.setFont(bigFont ? u8g2_font_6x10_tf : u8g2_font_5x8_tf);
-
-      char idStr[6];
-      snprintf(idStr, sizeof(idStr), "%d", i + 1);
-      u8g2.drawStr(x + 3, textY, idStr);
-
-      if (isStationOnline(i) && stations[i].isRunning) {
-        char rBuf[8];
-        snprintf(rBuf, sizeof(rBuf), "%3.0f", stations[i].flowRate_ml_hr);
-        u8g2.drawStr(x + (bigFont ? 11 : 10), textY, rBuf);
-      }
-
-      // คำสถานะชิดขวาของการ์ดเสมอ ตาจึงกวาดหาคำผิดปกติได้เป็นแนวตั้ง
-      const char *st = gridStatusOf(i);
-      int adv = bigFont ? 6 : 5;
-      int stX = x + cardW - 3 - (int)strlen(st) * adv;
-      u8g2.drawStr(stX, textY, st);
-
-      u8g2.setDrawColor(1);
-    }
-  }
-
-  // ---- แถบล่าง: เรียงตามความเร่งด่วน ----
-  u8g2.drawHLine(0, 53, 128);
-  u8g2.setFont(u8g2_font_5x8_tf);
-  char buf[36];
-  uint8_t beyond = heardBeyondBedCount();
-
-  if (alarmBed > 0) {
-    snprintf(buf, sizeof(buf), "%sB%d %s", isSnoozed() ? "(ZZ) " : "! ", alarmBed, alertTextEn(alarmCode));
-    u8g2.drawBox(0, 54, 128, 10);
-    u8g2.setDrawColor(0);
-    u8g2.drawStr(2, 62, buf);
-    u8g2.setDrawColor(1);
-  }
-  else if (anyIdConflict()) {
-    // สำคัญกว่าทุกอย่างที่เหลือ เพราะทำให้ข้อมูลของเตียงอื่นหายไปทั้งเตียง
-    u8g2.drawBox(0, 54, 128, 10);
-    u8g2.setDrawColor(0);
-    u8g2.drawStr(2, 62, "! 2 NODES SAME BED ID");
-    u8g2.setDrawColor(1);
-  }
-  else if (beyond > 0) {
-    snprintf(buf, sizeof(buf), "! HEARD BED %d - ADD BEDS", beyond);
-    u8g2.drawFrame(0, 54, 128, 10);
-    u8g2.drawStr(2, 62, buf);
-  }
-  else {
-    int nearBed = 0;
-    for (int i = 0; i < activeStationCount; i++) {
-      if (stations[i].alertCode == ALERT_NEAR_END && !stations[i].nearEndAck) { nearBed = i + 1; break; }
-    }
-    if (nearBed > 0) {
-      const StationData &ns = stations[nearBed - 1];
-      int pct = (ns.cfg.planVolumeMl > 0) ? (int)(ns.totalVolumeMl * 100.0f / ns.cfg.planVolumeMl) : 0;
-      snprintf(buf, sizeof(buf), "B%d NEW BAG SOON %d%%", nearBed, pct);
-      u8g2.drawFrame(0, 54, 128, 10);
-      u8g2.drawStr(2, 62, buf);
-    } else {
-      snprintf(buf, sizeof(buf), "ONLINE %d/%d", onlineCount, activeStationCount);
-      u8g2.drawStr(0, 62, buf);
-    }
+  if (rowH >= 30) {
+    textAt(String(bed), SIDE_X + 8, y + 5, 2, dim ? C_DIM : C_WHITE, card);
+    textRight(rateStr, SIDE_X + SIDE_W - 6, y + 5, 2, bedIsAlarm(st) ? sc : (dim ? C_DIM : C_WHITE), card);
+    if (st != BU_OFFLINE) drawProgressBar(SIDE_X + 8, y + rowH - 9, SIDE_W - 16, 5, bedPct(idx),
+                                          (st == BU_NEAREND) ? C_ORANGE : C_CYAN);
+  } else {
+    textAt(String(bed), SIDE_X + 8, y + (rowH - 8) / 2, 1, dim ? C_DIM : C_WHITE, card);
+    textRight(rateStr, SIDE_X + SIDE_W - 6, y + (rowH - 16) / 2, 2, bedIsAlarm(st) ? sc : (dim ? C_DIM : C_WHITE), card);
   }
 }
 
-void updateHostOLED() {
-  if (oledDisplaySleeping || isPowerOffProgressActive) return;
-  u8g2.clearBuffer();
+void updateSideList(int focus, bool force) {
+  int n = activeStationCount - 1;
+  if (n <= 0) return;
+  int gap = 4;
+  int rowH = (PANEL_H - gap * (n - 1)) / n;
+  if (rowH > 40) rowH = 40;
+  if (rowH < 20) rowH = 20;
+  if (force || rowH != uiRowsDrawn) {
+    tft.fillRect(SIDE_X, PANEL_Y, SIDE_W, PANEL_H, C_BG);
+    uiRowsDrawn = rowH;
+    for (int i = 0; i < MAX_SUPPORTED_STATIONS; i++) cacheSide[i] = "";
+  }
+
+  int slot = 0;
+  for (int i = 0; i < activeStationCount; i++) {
+    if (i == focus) continue;
+    BedUiStatus st = bedUiStatus(i);
+    String key = String((int)st) + ":" + String((int)(stations[i].flowRate_ml_hr + 0.5f)) + ":" + String(bedPct(i));
+    if (key != cacheSide[i]) {
+      cacheSide[i] = key;
+      drawSideRow(i, PANEL_Y + slot * (rowH + gap), rowH);
+    }
+    slot++;
+  }
+}
+
+// ---- แผงเตียงหลักด้านซ้าย ----
+void drawFocusPanel(int focus, bool force) {
+  BedUiStatus st = bedUiStatus(focus);
+  const StationData &s = stations[focus];
+  uint16_t sc = bedColor(st);
+
+  char head[24];
+  snprintf(head, sizeof(head), "BED %02d", focus + 1);
+  String headKey = String(head) + "|" + String((int)st) + "|" + String(s.cfg.patientName);
+  if (force || headKey != cacheFocusHead) {
+    cacheFocusHead = headKey;
+    tft.fillRoundRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 6, C_CARD);
+    tft.fillRoundRect(PANEL_X, PANEL_Y, PANEL_W, 26, 6, sc);
+    tft.fillRect(PANEL_X, PANEL_Y + 18, PANEL_W, 8, sc);
+    textAt(String(head), PANEL_X + 7, PANEL_Y + 6, 2, C_BG, sc);
+    String name = String(s.cfg.patientName);
+    if (name.length() > 14) name = name.substring(0, 14);
+    textRight(name, PANEL_X + PANEL_W - 7, PANEL_Y + 8, 1, C_BG, sc);
+    cacheStatusWord = ""; cacheRate = ""; cacheSetRate = ""; cacheSummary = ""; cachePct = -999;
+  }
+
+  String word = String(bedWord(st));
+  if (word != cacheStatusWord) {
+    cacheStatusWord = word;
+    textAt(padTo(word, 9), PANEL_X + 9, 66, 2, sc, C_CARD);
+  }
+
+  String rateStr = (st == BU_OFFLINE) ? String("--") :
+                   (st == BU_PAUSED)  ? String("--") : String((int)(s.flowRate_ml_hr + 0.5f));
+  if (rateStr != cacheRate) {
+    cacheRate = rateStr;
+    tft.fillRect(PANEL_X + 9, 92, PANEL_W - 18, 48, C_CARD);
+    textAt(rateStr, PANEL_X + 9, 92, 6, bedIsAlarm(st) ? sc : C_WHITE, C_CARD);
+  }
+
+  String setStr = (s.cfg.targetRateHr > 0) ? ("SET " + String((int)(s.cfg.targetRateHr + 0.5f))) : String("SET --");
+  if (setStr != cacheSetRate) {
+    cacheSetRate = setStr;
+    textAt("mL/h", PANEL_X + 9, 148, 1, C_DIM, C_CARD);
+    textRight(padTo(setStr, 9), PANEL_X + PANEL_W - 9, 148, 1, C_SKY, C_CARD);
+  }
+
+  int pct = bedPct(focus);
+  if (pct != cachePct) {
+    cachePct = pct;
+    drawProgressBar(PANEL_X + 9, 168, PANEL_W - 18, 12, (pct < 0) ? 0 : pct,
+                    (st == BU_NEAREND) ? C_ORANGE : C_CYAN);
+  }
+
+  int left = (s.cfg.planVolumeMl > 0) ? (int)(s.cfg.planVolumeMl - s.totalVolumeMl) : -1;
+  if (left < 0 && s.cfg.planVolumeMl > 0) left = 0;
+  int mins = bedMinutesLeft(focus);
+  char tl[16];
+  if (mins >= 0) snprintf(tl, sizeof(tl), "%dh %02dm", mins / 60, mins % 60);
+  else           snprintf(tl, sizeof(tl), "--h --m");
+  String sum = String(pct) + "|" + String(left) + "|" + String(tl);
+  if (sum != cacheSummary) {
+    cacheSummary = sum;
+    tft.fillRect(PANEL_X + 7, 190, PANEL_W - 14, 10, C_CARD);
+    textAt(pct >= 0 ? (String(pct) + "%") : String("--"), PANEL_X + 9, 190, 1, C_DIM, C_CARD);
+    textCenterIn(left >= 0 ? (String(left) + " mL") : String("-- mL"), PANEL_X, PANEL_W, 190, 1, C_WHITE, C_CARD);
+    textRight(String(tl), PANEL_X + PANEL_W - 9, 190, 1, bedIsAlarm(st) ? sc : C_WHITE, C_CARD);
+  }
+}
+
+// ---- หน้าหลัก ----
+void drawMainFramework() {
+  tft.fillScreen(C_BG);
+  drawTopBarFramework();
+  resetUiCaches();
+}
+
+void updateMainScreen() {
+  int focus = currentFocusBed();
+  bool focusChanged = (focus != uiFocusDrawn);
+  uiFocusDrawn = focus;
+  updateTopBar();
+  drawFocusPanel(focus, focusChanged);
+  updateSideList(focus, focusChanged);
+  updateBottomBar();
+}
+
+// ---- จอเตือนเต็มจอ ----
+void drawAlarmFramework() {
+  int bed = autoFocusBed();
+  if (bed < 0) bed = 0;
+  const StationData &s = stations[bed];
+  uint8_t code = s.alertCode;
+
+  tft.fillScreen(C_RED);
+  tft.fillRoundRect(10, 8, 300, 40, 8, C_WHITE);
+  char head[24];
+  snprintf(head, sizeof(head), "BED %02d", bed + 1);
+  textAt(String(head), 22, 18, 3, C_RED, C_WHITE);
+  String name = String(s.cfg.patientName);
+  if (name.length() > 16) name = name.substring(0, 16);
+  textRight(name, 298, 24, 1, C_RED, C_WHITE);
+
+  const char* word = alertTextEn(code);
+  const char* sub  = "CHECK IV SYSTEM";
+  if (code == ALERT_OCCLUSION)     sub = "LINE BLOCKED - CHECK TUBING";
+  else if (code == ALERT_TOO_FAST) sub = "FLOW ABOVE TARGET - ADJUST CLAMP";
+  else if (code == ALERT_TOO_SLOW) sub = "FLOW BELOW TARGET - ADJUST CLAMP";
+  else if (code == ALERT_COMPLETE) sub = "INFUSION FINISHED";
+  textCenterIn(String(word), 0, SCR_W, 62, 4, C_WHITE, C_RED);
+  textCenterIn(String(sub), 0, SCR_W, 102, 1, C_YELLOW, C_RED);
+
+  tft.fillRoundRect(20, 122, 280, 66, 8, C_BG);
+  textAt("RATE", 32, 130, 1, C_DIM, C_BG);
+  textAt("mL/h", 32, 172, 1, C_DIM, C_BG);
+  textRight(s.cfg.targetRateHr > 0 ? ("SET " + String((int)(s.cfg.targetRateHr + 0.5f)) + " mL/h") : String("SET --"),
+            288, 172, 1, C_SKY, C_BG);
+  int pct = bedPct(bed);
+  textRight(pct >= 0 ? ("INFUSED " + String(pct) + "%") : String("INFUSED --"), 288, 130, 1, C_DIM, C_BG);
+
+  tft.fillRoundRect(10, 198, 300, 32, 8, C_WHITE);
+  textCenterIn("PRESS POWER = SNOOZE 2 MIN", 0, SCR_W, 208, 1, C_RED, C_WHITE);
+  cacheAlarmRate = "";
+}
+
+void updateAlarmScreen() {
+  int bed = autoFocusBed();
+  if (bed < 0) bed = 0;
+  String rate = String((int)(stations[bed].flowRate_ml_hr + 0.5f));
+  if (rate == cacheAlarmRate) return;
+  cacheAlarmRate = rate;
+  tft.fillRect(30, 140, 180, 32, C_BG);
+  textAt(rate, 32, 140, 4, C_WHITE, C_BG);
+}
+
+// ---- Screensaver: นาฬิกาใหญ่ ----
+void drawSaverFramework() {
+  tft.fillScreen(C_BG);
+  textCenterIn("SMART IV HOST", 0, SCR_W, 24, 1, C_DIM, C_BG);
+  textCenterIn("PRESS ANY BUTTON TO WAKE", 0, SCR_W, 210, 1, C_DIM, C_BG);
+  cacheClock = ""; cacheBottom = "";
+}
+
+void updateSaverScreen() {
+  String clockStr = getDisplayClockStr();
+  if (clockStr != cacheClock) {
+    cacheClock = clockStr;
+    textCenterIn(clockStr, 0, SCR_W, 76, 7, C_WHITE, C_BG);
+  }
+  int online = 0;
+  for (int i = 0; i < activeStationCount; i++) if (isStationOnline(i)) online++;
+  char buf[40];
+  snprintf(buf, sizeof(buf), "ONLINE %d/%d   ALL NORMAL", online, activeStationCount);
+  String line = String(buf);
+  if (line != cacheBottom) {
+    cacheBottom = line;
+    textCenterIn(line, 0, SCR_W, 156, 1, C_GREEN, C_BG);
+  }
+}
+
+// ---- ตัวควบคุมการแสดงผลทั้งหมด ----
+void updateHostDisplay() {
+  if (displaySleeping || isPowerOffProgressActive) return;
 
   bool nearPending = anyNearEndPending();
-  if (!oledScreensaverActive && !globalAlarmTriggered && !nearPending && (millis() - lastUserActivityTime >= 300000)) {
-    oledScreensaverActive = true;
+  if (!screensaverActive && !globalAlarmTriggered && !nearPending &&
+      (millis() - lastUserActivityTime >= SCREENSAVER_IDLE_MS)) {
+    screensaverActive = true;
   }
-  // มีเหตุวิกฤต (ยังไม่พักเสียง) หรือเตือนใกล้หมดที่ยังไม่รับทราบ -> ออกจาก Screensaver เพื่อแสดงเตือน
-  if (oledScreensaverActive && ((globalAlarmTriggered && !isSnoozed()) || nearPending)) {
-    oledScreensaverActive = false;
-    currentOledPage = 0;
-  }
-
-  if (oledScreensaverActive) {
-    u8g2.setFont(u8g2_font_7x13_tf);
-    u8g2.drawStr(20, 10, "SMART IV CLOCK");
-    u8g2.drawHLine(10, 13, 108);
-
-    u8g2.setFont(u8g2_font_logisoso32_tf);
-    String clockStr = getOledClockStr();
-    u8g2.drawStr(4, 56, clockStr.c_str());
-  }
-  else if (currentOledPage == 0) {
-    // หัวจอ: ชื่อหน้า + นาฬิกา (เลขจำนวนเตียงย้ายไปอยู่แถบล่างแล้ว ไม่ต้องบอกสองที่)
-    u8g2.setFont(u8g2_font_5x8_tf);
-    u8g2.drawStr(0, 7, "IV MONITOR");
-    String clk = getOledClockStr();
-    u8g2.drawStr(128 - (int)clk.length() * 5, 7, clk.c_str());
-    u8g2.drawHLine(0, 9, 128);
-
-    renderBlockStyleGrid();
-  }
-  else if (currentOledPage >= 1 && currentOledPage <= activeStationCount) {
-    int idx = currentOledPage - 1;
-    const StationData &s = stations[idx];
-    bool isOnline = isStationOnline(idx);
-    bool isPaused = isOnline && !s.isRunning;
-
-    // ---- หัวจอ: เลขเตียงตัวใหญ่ อ่านออกทันทีว่ากำลังดูเตียงไหน ----
-    char headBuf[16];
-    snprintf(headBuf, sizeof(headBuf), "BED %d", currentOledPage);
-    u8g2.setFont(u8g2_font_7x13_tf);
-    u8g2.drawStr(0, 10, headBuf);
-    u8g2.setFont(u8g2_font_5x8_tf);
-    u8g2.drawStr(50, 9, shortStatusOf(idx));
-    u8g2.drawHLine(0, 12, 128);
-
-    // ---- กระเปาะหยด: ย้ายมาอยู่หน้านี้เท่านั้น มีที่พอให้วาดใหญ่จนเห็นจริง ----
-    drawDripChamber(110, 15, 46, idx);
-
-    // ---- อัตราไหล: ตัวเลขใหญ่ที่สุดบนหน้าจอ ----
-    if (!isOnline || isPaused) {
-      u8g2.setFont(u8g2_font_logisoso16_tf);
-      u8g2.drawStr(2, 34, isOnline ? "PAUSED" : "OFFLINE");
-    } else {
-      char rBuf[12];
-      snprintf(rBuf, sizeof(rBuf), "%.0f", s.flowRate_ml_hr);
-      u8g2.setFont(u8g2_font_logisoso32_tf);
-      u8g2.drawStr(2, 44, rBuf);
-      u8g2.setFont(u8g2_font_6x10_tf);
-      u8g2.drawStr(62, 26, "mL/h");
-      char setBuf[16];
-      snprintf(setBuf, sizeof(setBuf), "set %.0f", s.cfg.targetRateHr);
-      u8g2.setFont(u8g2_font_5x8_tf);
-      u8g2.drawStr(62, 40, setBuf);
-    }
-
-    // ---- แถบความคืบหน้าของถุง แทนตัวเลขปริมาตรสองชุดที่อ่านยาก ----
-    int pct = (s.cfg.planVolumeMl > 0)
-              ? (int)(s.totalVolumeMl * 100.0f / s.cfg.planVolumeMl) : 0;
-    if (pct > 100) pct = 100;
-    u8g2.drawFrame(0, 47, 104, 7);
-    if (pct > 0) u8g2.drawBox(1, 48, (102 * pct) / 100, 5);
-
-    char volBuf[24];
-    if (s.cfg.planVolumeMl > 0)
-      snprintf(volBuf, sizeof(volBuf), "%.0f/%.0f mL  %d%%", s.totalVolumeMl, s.cfg.planVolumeMl, pct);
-    else
-      snprintf(volBuf, sizeof(volBuf), "%.0f mL (no plan)", s.totalVolumeMl);
-    u8g2.setFont(u8g2_font_5x8_tf);
-    u8g2.drawStr(0, 62, volBuf);
-  }
-  // ---- หน้าตรวจการเชื่อมต่อ (สำหรับช่างเท่านั้น อยู่ท้ายสุดของวง) ----
-  else if (currentOledPage == activeStationCount + 1) {
-    u8g2.setFont(u8g2_font_5x8_tf);
-    u8g2.drawStr(0, 7, "LINK DIAGNOSTIC");
-    u8g2.drawHLine(0, 9, 128);
-
-    // ตารางเลขเตียง 1-8: ได้ยินไหม / MAC ท้าย 2 ไบต์ / คุณภาพลิงก์
-    u8g2.setFont(u8g2_font_4x6_tf);
-    u8g2.drawStr(0, 16, "BED MAC   LNK  BED MAC   LNK");
-    for (int i = 0; i < MAX_SUPPORTED_STATIONS; i++) {
-      int col = i / 4;
-      int row = i % 4;
-      int x = col * 65;
-      int y = 24 + row * 7;
-      const StationData &s = stations[i];
-      char line[24];
-      if (!heardStationId(i)) {
-        snprintf(line, sizeof(line), "%d   --       -", i + 1);
-      } else {
-        snprintf(line, sizeof(line), "%d   %02X%02X%s %3d", i + 1, s.srcMac[4], s.srcMac[5],
-                 s.idConflict ? "*" : " ", s.linkPct);
-      }
-      if (i >= activeStationCount && heardStationId(i)) {
-        u8g2.drawBox(x, y - 5, 62, 7);      // ได้ยินแต่ยังไม่ได้เปิดใช้ = กลับสีให้สะดุดตา
-        u8g2.setDrawColor(0);
-        u8g2.drawStr(x + 1, y, line);
-        u8g2.setDrawColor(1);
-      } else {
-        u8g2.drawStr(x + 1, y, line);
-      }
-    }
-
-    u8g2.drawHLine(0, 54, 128);
-    u8g2.setFont(u8g2_font_5x8_tf);
-    if (anyIdConflict())            u8g2.drawStr(0, 62, "* = 2 NODES SAME ID!");
-    else if (heardBeyondBedCount()) u8g2.drawStr(0, 62, "INVERTED = ADD MORE BEDS");
-    else                            u8g2.drawStr(0, 62, "ALL BED IDs UNIQUE");
+  // มีเหตุวิกฤต (ยังไม่พักเสียง) หรือเตือนใกล้หมดที่ยังไม่รับทราบ -> ออกจาก Screensaver
+  if (screensaverActive && ((globalAlarmTriggered && !isSnoozed()) || nearPending)) {
+    screensaverActive = false;
   }
 
-  u8g2.sendBuffer();
+  int mode = UI_MODE_MAIN;
+  if (screensaverActive) mode = UI_MODE_SAVER;
+  else if (globalAlarmTriggered && !isSnoozed()) mode = UI_MODE_ALARM;
+
+  if (mode != uiMode) {
+    uiMode = mode;
+    resetUiCaches();
+    if (mode == UI_MODE_SAVER)      drawSaverFramework();
+    else if (mode == UI_MODE_ALARM) drawAlarmFramework();
+    else                            drawMainFramework();
+  }
+
+  if (mode == UI_MODE_SAVER)      updateSaverScreen();
+  else if (mode == UI_MODE_ALARM) updateAlarmScreen();
+  else                            updateMainScreen();
+}
+
+// ---- หน้าจอเฉพาะกิจ: ปิดเครื่อง / กำลังกดค้าง / หน้าจอต้อนรับ ----
+void drawPowerOffProgress(int pct) {
+  if (uiMode != UI_MODE_POWER) {
+    uiMode = UI_MODE_POWER;
+    tft.fillScreen(C_BG);
+    textCenterIn("POWER OFF ?", 0, SCR_W, 70, 3, C_WHITE, C_BG);
+    textCenterIn("KEEP HOLDING TO TURN OFF", 0, SCR_W, 110, 1, C_DIM, C_BG);
+    tft.drawRoundRect(58, 138, 204, 24, 6, C_WHITE);
+  }
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  int w = (200 * pct) / 100;
+  tft.fillRect(60, 140, w, 20, C_RED);
+  tft.fillRect(60 + w, 140, 200 - w, 20, C_BG);
+}
+
+void drawGoodbyeScreen() {
+  uiMode = UI_MODE_POWER;
+  tft.fillScreen(C_BG);
+  textCenterIn("GOODBYE", 0, SCR_W, 80, 4, C_SKY, C_BG);
+  textCenterIn("RELEASE BUTTON TO TURN OFF", 0, SCR_W, 140, 1, C_DIM, C_BG);
+  textCenterIn("HOLD 2s TO POWER ON AGAIN", 0, SCR_W, 160, 1, C_DIM, C_BG);
+}
+
+void setDisplaySleep(bool sleep) {
+  displaySleeping = sleep;
+#if TFT_BLK >= 0
+  digitalWrite(TFT_BLK, sleep ? LOW : HIGH);
+#endif
+  if (sleep) {
+    tft.fillScreen(C_BG);
+  } else {
+    uiMode = -1;          // บังคับวาดกรอบใหม่ทั้งหมดเมื่อเปิดจอ
+    resetUiCaches();
+  }
+}
+
+void drawSplashScreen() {
+  tft.fillScreen(C_BG);
+  tft.fillRoundRect(30, 46, 260, 90, 10, C_TOPBAR);
+  textCenterIn("SMART IV", 0, SCR_W, 62, 4, C_WHITE, C_TOPBAR);
+  textCenterIn("CENTRAL HOST", 0, SCR_W, 104, 2, C_SKY, C_TOPBAR);
+  textCenterIn("Host v" APP_VERSION "   Protocol v3", 0, SCR_W, 156, 1, C_DIM, C_BG);
+  char buf[40];
+  snprintf(buf, sizeof(buf), "BEDS %d   AP %s", activeStationCount, default_ap_ssid);
+  textCenterIn(String(buf), 0, SCR_W, 176, 1, C_DIM, C_BG);
+  textCenterIn("BCN Phrae Innovation", 0, SCR_W, 200, 1, C_GREEN, C_BG);
 }
 
 // ----------------------------------------------------------------------------
@@ -1488,9 +1340,6 @@ void handleApiData() {
   json += "\"hostBatVolts\":" + String(hostBatteryVolts, 2) + ",";
   json += "\"hostBatPct\":" + String(hostBatteryPct) + ",";
   json += "\"snoozed\":" + String(isSnoozed() ? "true" : "false") + ",";
-  json += "\"linkWeakPct\":" + String(LINK_WEAK_PCT) + ",";
-  json += "\"syncFail\":" + String(syncSendFail) + ",";
-  json += "\"heardBeyond\":" + String(heardBeyondBedCount()) + ",";
   json += "\"stations\":[";
   for (int i = 0; i < activeStationCount; i++) {
     const StationData &s = stations[i];
@@ -1501,10 +1350,6 @@ void handleApiData() {
     json += "\"online\":" + String(isOnline ? "true" : "false") + ",";
     json += "\"running\":" + String(s.isRunning ? "true" : "false") + ",";
     json += "\"rssi\":" + String(isOnline ? s.rssi : 0) + ",";
-    json += "\"link\":" + String(s.linkPct) + ",";
-    json += "\"idConflict\":" + String(s.idConflict ? "true" : "false") + ",";
-    json += "\"mac\":\"" + macTail(s) + "\",";
-    json += "\"rxTotal\":" + String(s.rxTotal) + ",";
     json += "\"battery\":" + String(s.batteryVolts, 2) + ",";
     json += "\"totalDrops\":" + String(s.totalDrops) + ",";
     json += "\"volumeMl\":" + String(s.totalVolumeMl, 2) + ",";
@@ -1580,7 +1425,7 @@ void handleStationConfig() {
   portEXIT_CRITICAL(&dataMux);
 
   evaluateClinicalAlerts();
-  requestSyncNow(idx);          // ส่งเฉพาะเตียงนี้ในช่องเวลาถัดไป (ไม่บล็อกหน้าเว็บ)
+  broadcastSyncToNodes();
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -1613,7 +1458,7 @@ void handleStationReset() {
   snprintf(s.trialCase.startTimeStr, sizeof(s.trialCase.startTimeStr), "%s", nowStr.c_str());
 
   saveBedConfig(idx);
-  requestSyncNow(idx);          // Station ต้องเห็น resetSeq ใหม่ทันที
+  broadcastSyncToNodes();
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -1623,7 +1468,7 @@ void handleStationAck() {
   int idx = parseStationArg();
   if (idx < 0) { server.send(400, "text/plain", "Invalid station"); return; }
   stations[idx].nearEndAck = true;
-  requestSyncNow(idx);
+  broadcastSyncToNodes();
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -1637,10 +1482,9 @@ void handleSetStationCount() {
       preferences.putUChar("bedCount", activeStationCount);
       preferences.end();
 
-      if (currentOledPage > activeStationCount + 1) currentOledPage = 0;
-      if (syncRoundIdx >= activeStationCount) syncRoundIdx = 0;
-      requestSyncAll();           // เตียงที่เพิ่งเปิดใช้จะได้ค่าตั้งทันที
-      updateHostOLED();
+      if (manualFocusBed >= activeStationCount) manualFocusBed = -1;
+      uiMode = -1;                 // จำนวนเตียงเปลี่ยน -> วาดหน้าจอใหม่ทั้งหมด
+      updateHostDisplay();
       server.send(200, "text/plain", "OK");
       return;
     }
@@ -1806,24 +1650,16 @@ void setup() {
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 
-  Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
-  // 100 kHz (ค่าปริยาย) ทำให้ส่งภาพทั้งจอใช้เวลาราว 92 ms ต่อเฟรม ซึ่งช้าเกินกว่าจะทำ
-  // แอนิเมชันได้ และยังหน่วง loop() ด้วย 400 kHz อยู่ในสเปกของ SH1106 และเหลือราว 23 ms
-  u8g2.setBusClock(OLED_I2C_HZ);
-  u8g2.begin();
-  u8g2.clearBuffer();
-
-  u8g2.drawRFrame(0, 0, 128, 64, 4);
-  u8g2.setFont(u8g2_font_7x14B_tf);
-  u8g2.drawStr(14, 18, "SMART IV ALERT");
-  u8g2.drawHLine(8, 23, 112);
-
-  u8g2.setFont(u8g2_font_5x8_tf);
-  u8g2.drawStr(14, 35, "Central Host Gateway");
-  u8g2.setFont(u8g2_font_4x6_tf);
-  u8g2.drawStr(14, 45, "BCN Phrae & MCU Collab");
-  u8g2.drawStr(14, 55, "Host v" APP_VERSION " / Proto v3");
-  u8g2.sendBuffer();
+#if TFT_BLK >= 0
+  pinMode(TFT_BLK, OUTPUT);
+  digitalWrite(TFT_BLK, HIGH);
+#endif
+  SPI_TFT.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
+  tft.init(240, 320);              // ความละเอียดจริงของแผง ST7789V
+  tft.setSPISpeed(40000000);
+  tft.setRotation(TFT_ROTATION);   // หมุนเป็นแนวนอน 320x240
+  tft.setTextWrap(false);
+  tft.fillScreen(0x0000);
 
   hostBatteryVolts = readHostBattery();
   hostBatteryPct = calculateBatteryPct(hostBatteryVolts);
@@ -1888,15 +1724,17 @@ void setup() {
   server.on("/api/time/set", HTTP_POST, handleTimeSet);
   server.begin();
 
+  drawSplashScreen();
   lastUserActivityTime = millis();
   playWelcomeMelody();
   delay(1400);
+  uiMode = -1;
 
   unsigned long nowMs = millis();
   lastCalcTime = nowMs;
   lastMinuteLogTime = nowMs;
   lastSyncBroadcastTime = nowMs;
-  updateHostOLED();
+  updateHostDisplay();
 }
 
 // ==========================================
@@ -1917,15 +1755,12 @@ void loop() {
     backupClockToNvs();
   }
 
-  // ---- ประเมินเตือนทุก 1 วินาที (การส่ง Sync แยกไปอยู่ที่ตัวจัดคิวด้านล่าง) ----
+  // ---- ประเมินเตือน + ส่ง Sync ทุก 1 วินาที ----
   if (currentMillis - lastSyncBroadcastTime >= SYNC_INTERVAL_MS) {
     lastSyncBroadcastTime = currentMillis;
     evaluateClinicalAlerts();
+    broadcastSyncToNodes();
   }
-
-  // ---- ส่ง Sync ทีละใบแบบเฉลี่ยช่องเวลา + วัดคุณภาพลิงก์ ----
-  serviceSyncScheduler();
-  serviceLinkQuality();
 
   // ---- อัปเดตค่าที่คำนวณได้ทุก 2 วินาที ----
   if (currentMillis - lastCalcTime >= 2000) {
@@ -1943,13 +1778,15 @@ void loop() {
     lastCalcTime = currentMillis;
   }
 
-  // รีเฟรชถี่เฉพาะตอนที่มีหยดให้แสดงจริง ๆ เพื่อไม่ให้เปลือง I2C และเวลาในลูปโดยเปล่าประโยชน์
-  unsigned long oledRefreshInterval;
-  if (oledDisplaySleeping || oledScreensaverActive) oledRefreshInterval = 1000;
-  else if (anyBedDripping())                        oledRefreshInterval = OLED_ANIM_INTERVAL_MS;
-  else                                              oledRefreshInterval = OLED_IDLE_INTERVAL_MS;
+  // เลือกเตียงเองแล้วปล่อยไว้ครบเวลา -> กลับไปโหมดเลือกอัตโนมัติ
+  if (manualFocusBed >= 0 && currentMillis > manualFocusUntil) {
+    manualFocusBed = -1;
+    uiMode = -1;
+  }
+
+  unsigned long oledRefreshInterval = displaySleeping ? 1000 : 500;
   if (currentMillis - lastOledUpdateTime >= oledRefreshInterval) {
-    updateHostOLED();
+    updateHostDisplay();
     lastOledUpdateTime = currentMillis;
   }
 

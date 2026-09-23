@@ -82,8 +82,8 @@ def button(sh, ref, net, caption, x, y):
 
 # =============================================================== STATION
 def build_station():
-    ino = os.path.join(ROOT, 'firmware', 'ESP32-S3-Station-V_7_7_3',
-                       'ESP32-S3-Station-V_7_7_3.ino')
+    ino = os.path.join(ROOT, 'firmware', 'Station',
+                       'Station.ino')
     P = pins_from(ino, ['TFT_CS', 'TFT_DC', 'TFT_RST', 'TFT_MOSI', 'TFT_SCLK',
                         'TFT_BLK', 'SENSOR_AO_PIN', 'BUZZER_PIN', 'BTN_PIN',
                         'RGB_LED_PIN'])
@@ -159,8 +159,8 @@ def build_station():
 
 # =============================================================== HOST OLED
 def build_host():
-    ino = os.path.join(ROOT, 'firmware', 'ESP32-S3-Host-OLED-V_4_7_5',
-                       'ESP32-S3-Host-OLED-V_4_7_5.ino')
+    ino = os.path.join(ROOT, 'firmware', 'Host-OLED',
+                       'Host-OLED.ino')
     P = pins_from(ino, ['HOST_BAT_ADC_PIN', 'POWER_BTN_PIN', 'PAGE_BTN_PIN',
                         'BUZZER_PIN', 'OLED_SDA_PIN', 'OLED_SCL_PIN'])
     gpios = sorted(set(P.values()))

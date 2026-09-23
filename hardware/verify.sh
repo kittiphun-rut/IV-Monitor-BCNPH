@@ -17,13 +17,13 @@ import re, sys
 
 CASES = [
     ('/tmp/Station-BedNode.net',
-     '../firmware/ESP32-S3-Station-V_7_7_3/ESP32-S3-Station-V_7_7_3.ino',
+     '../firmware/Station/Station.ino',
      {'TFT_SCLK': 'TFT_SCLK', 'TFT_MOSI': 'TFT_MOSI', 'TFT_RST': 'TFT_RST',
       'TFT_DC': 'TFT_DC', 'TFT_CS': 'TFT_CS', 'TFT_BLK': 'TFT_BLK',
       'DROP_AO': 'SENSOR_AO_PIN', 'BUZZER': 'BUZZER_PIN', 'BTN': 'BTN_PIN',
       'RGB_LED_ONBOARD': 'RGB_LED_PIN'}),
     ('/tmp/Host-OLED.net',
-     '../firmware/ESP32-S3-Host-OLED-V_4_7_5/ESP32-S3-Host-OLED-V_4_7_5.ino',
+     '../firmware/Host-OLED/Host-OLED.ino',
      {'OLED_SDA': 'OLED_SDA_PIN', 'OLED_SCL': 'OLED_SCL_PIN',
       'BTN_POWER': 'POWER_BTN_PIN', 'BTN_PAGE': 'PAGE_BTN_PIN',
       'BUZZER': 'BUZZER_PIN', 'VBAT_SENSE': 'HOST_BAT_ADC_PIN'}),

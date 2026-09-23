@@ -1,6 +1,6 @@
 # Central Host Gateway v4.7.5-OLED — แก้บั๊กลำดับโค้ดและหยดปลอมบนแอนิเมชัน
 
-ต่อยอดจาก `ESP32-S3-Host-OLED-V_4_7_4` แก้ 2 จุด ส่วนอื่นไม่เปลี่ยน
+ต่อยอดจาก **Host จอ OLED v4.7.4** แก้ 2 จุด ส่วนอื่นไม่เปลี่ยน
 โครงสร้างแพ็กเก็ต (Protocol v3) เท่าเดิมทุกไบต์ ใช้คู่กับ Station รุ่นเดิมได้ทันที
 
 ## 1. บั๊ก `oldPlan` อ่านค่าหลังเขียนทับ (ใหม่ใน v4.7.5)
@@ -46,7 +46,7 @@ if (nearChanged || c.planVolumeMl != oldPlan) { ... }   // เป็นเท็
 
 ## เอกสารเดิมจากรุ่นก่อนหน้า
 
-ต่อยอดจาก `ESP32-S3-Host-OLED-V_4_7_3` โครงสร้างแพ็กเก็ต ESP-NOW **ไม่เปลี่ยนแม้แต่ไบต์เดียว**
+ต่อยอดจาก **Host จอ OLED v4.7.3** โครงสร้างแพ็กเก็ต ESP-NOW **ไม่เปลี่ยนแม้แต่ไบต์เดียว**
 
 ![หน้า Live Monitor](../../docs/screens-dashboard/live_monitor.png)
 
@@ -277,4 +277,4 @@ tools/oled-preview/run.sh
   ในฟังก์ชัน `playAlarmTone()` ได้ถ้าต้องการดังขึ้น) และแถบแจ้งเตือนอ่านง่ายบนจอที่ใช้จริงไหม
 * v4.7.1 ยังอยู่ในที่เก็บครบถ้วนสำหรับย้อนกลับ
 * รายละเอียดการรองรับ Station v7.5.1 / v7.7.0 และการเตือน "เซนเซอร์ยังไม่จับหยด"
-  อยู่ใน [README ของ v4.7.1](../ESP32-S3-Host-OLED-V_4_7_1/README.md)
+  อยู่ใน [README ของ v4.7.1](https://github.com/kittiphun-rut/IV-Monitor-BCNPH/blob/release/07-s7.7.0-h4.7.1/firmware/**Host จอ OLED v4.7.1**/README.md)

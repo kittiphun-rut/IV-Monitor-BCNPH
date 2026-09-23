@@ -2,7 +2,7 @@
 # จำลองหน้าจอ OLED 128x64 ของเฟิร์มแวร์ Host ทุกหน้า โดยไม่ต้องมีบอร์ด
 set -euo pipefail
 cd "$(dirname "$0")"
-SKETCH_DIR="${1:-../../firmware/ESP32-S3-Host-OLED-V_4_7_4}"
+SKETCH_DIR="${1:-../../firmware/Host-OLED}"
 OUT="${2:-../../docs/screens-oled}"
 NAME="$(basename "$SKETCH_DIR")"
 

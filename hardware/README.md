@@ -10,8 +10,8 @@ python3 tools/kicad-gen/gen_schematics.py
 
 | ไฟล์ | บอร์ด | อ่านขาจาก |
 |---|---|---|
-| `Station-BedNode.kicad_sch` | เครื่องประจำเตียง v7.7.3 | `firmware/ESP32-S3-Station-V_7_7_3/` |
-| `Host-OLED.kicad_sch` | เครื่องศูนย์กลาง v4.7.5-OLED | `firmware/ESP32-S3-Host-OLED-V_4_7_5/` |
+| `Station-BedNode.kicad_sch` | เครื่องประจำเตียง v7.7.3 | `firmware/Station/` |
+| `Host-OLED.kicad_sch` | เครื่องศูนย์กลาง v4.7.5-OLED | `firmware/Host-OLED/` |
 
 เปิดด้วย KiCad 7 ขึ้นไป (ไฟล์ `.kicad_pro` มีให้แล้ว) นิยามสัญลักษณ์ทั้งหมดฝังอยู่ในไฟล์
 จึงเปิดได้บนเครื่องที่ไม่ได้ติดตั้งไลบรารีมาตรฐานของ KiCad

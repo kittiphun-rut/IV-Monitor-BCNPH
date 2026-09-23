@@ -163,11 +163,6 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
       box-shadow: 0 6px 16px rgba(0, 114, 255, 0.2);
       background: #f8fbff;
     }
-    /* (1) สถานะปกติ = กรอบสีเขียว มองแวบเดียวรู้ว่าเตียงไหนเรียบร้อย */
-    .station-card.normal-state {
-      border-color: #38a169 !important;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.05), 0 0 0 3px rgba(56,161,105,0.16);
-    }
     .station-card.paused-state {
       border-color: #f59e0b !important;
       background: #fffbeb !important;
@@ -294,46 +289,6 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
     .progress-fill { height: 100%; background: linear-gradient(90deg, #0072ff, #00c6ff); }
     .ack-btn { margin-top: 10px; width: 100%; padding: 9px; border: 0; border-radius: 10px; background: #dd6b20; color: #fff; font-weight: 700; font-size: 14.5px; cursor: pointer; }
     .near-line { font-size: 12.5px; color: #9c4221; margin-top: 4px; }
-
-    /* (3) แถบแจ้งเตือนรวมบนหน้า Live Monitor — บอกว่าเตียงไหนเป็นอะไร */
-    .alert-banner {
-      display: none;
-      background: linear-gradient(135deg, #e53e3e, #c53030);
-      color: #fff;
-      border-radius: 14px;
-      padding: 14px 18px;
-      margin-bottom: 16px;
-      box-shadow: 0 6px 18px rgba(229, 62, 62, 0.35);
-      animation: bannerPulse 1.2s ease-in-out infinite;
-    }
-    .alert-banner.show { display: block; }
-    .alert-banner .ab-title { font-size: 17px; font-weight: 800; margin-bottom: 8px; letter-spacing: .3px; }
-    .alert-banner .ab-list { display: flex; flex-wrap: wrap; gap: 8px; }
-    .alert-banner .ab-item {
-      background: rgba(255,255,255,0.18);
-      border: 1px solid rgba(255,255,255,0.45);
-      border-radius: 10px;
-      padding: 7px 13px;
-      font-size: 15.5px;
-      font-weight: 700;
-    }
-    .alert-banner .ab-item b { font-size: 17px; }
-    @keyframes bannerPulse {
-      0%, 100% { box-shadow: 0 6px 18px rgba(229,62,62,0.35); }
-      50%      { box-shadow: 0 6px 26px rgba(229,62,62,0.75); }
-    }
-    .watch-banner {
-      display: none;
-      background: #fffaf0;
-      border: 2px solid #dd6b20;
-      color: #7b341e;
-      border-radius: 14px;
-      padding: 12px 18px;
-      margin-bottom: 16px;
-      font-size: 15.5px;
-      font-weight: 700;
-    }
-    .watch-banner.show { display: block; }
     .sync-note { font-size: 12.5px; color: var(--text-muted); margin-top: 10px; line-height: 1.5; }
 
     .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 15px; }
@@ -472,7 +427,7 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
     <div>
       <h1 class="header-title">
         🏥 Smart IV Alert Central System
-        <span class="header-badge" id="versionBadge">—</span>
+        <span class="header-badge">v4.6.0</span>
       </h1>
       <div class="header-subtitle">
         <span id="netStatusSubtitle">AP: 192.168.4.1 · กำลังตรวจสอบ...</span>
@@ -505,13 +460,6 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
           <button class="scale-btn" onclick="changeBedScale(1)" style="background:var(--primary); color:#fff; border-color:var(--primary);">➕ เพิ่มเตียง</button>
         </div>
       </div>
-
-      <!-- (3) แถบแจ้งเตือนรวม: ไหลช้า / ไหลเร็ว / ไม่ไหล / ให้ครบแล้ว / เซนเซอร์ไม่จับหยด -->
-      <div class="alert-banner" id="alertBanner">
-        <div class="ab-title">🚨 ต้องไปดูเตียงเหล่านี้</div>
-        <div class="ab-list" id="alertBannerList"></div>
-      </div>
-      <div class="watch-banner" id="watchBanner"></div>
 
       <div class="station-grid" id="stationGridContainer"></div>
 
@@ -826,14 +774,7 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
       2: { text: '⚠️ ไหลช้าเกิน',         cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
       3: { text: '⏳ ใกล้หมด เตรียมถุงใหม่', cls: 'badge-warn',   card: 'warn-state',  alarm: false },
       4: { text: '🛑 ให้ครบตามแผนแล้ว',   cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
-      5: { text: '⚠️ สายพับ/หยุดไหล',     cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
-      6: { text: '🔍 เซนเซอร์ยังไม่จับหยด', cls: 'badge-alarm',  card: 'alarm-state', alarm: true  }
-    };
-
-    // ข้อความสั้น ๆ สำหรับแถบแจ้งเตือนรวม — ให้พยาบาลอ่านแวบเดียวรู้ว่าต้องไปทำอะไร
-    const ALERT_SHORT = {
-      1: 'ไหลเร็วเกิน', 2: 'ไหลช้าเกิน', 3: 'ใกล้หมด',
-      4: 'ให้ครบแล้ว', 5: 'ไม่ไหล / สายพับ', 6: 'เซนเซอร์ไม่จับหยด'
+      5: { text: '⚠️ สายพับ/หยุดไหล',     cls: 'badge-alarm',  card: 'alarm-state', alarm: true  }
     };
 
     function escapeHtml(str) {
@@ -917,39 +858,20 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
                      (st.caseStart ? `<br>เริ่มถุงปัจจุบัน: ${escapeHtml(st.caseStart)}` : '');
     }
 
-    // (4) เสียงเตือนแบบกระตุ้นความสนใจ
-    // เดิมเป็นเสียงไซน์ 880 Hz ครั้งเดียว 0.5 วินาที ซึ่งกลืนไปกับเสียงในหอผู้ป่วย
-    // ของใหม่เป็นชุด 3 พัลส์สลับสองความถี่ (เสียงแบบรถพยาบาล) ใช้คลื่นสี่เหลี่ยม
-    // ซึ่งมีฮาร์มอนิกมาก จึงแทรกผ่านเสียงรบกวนได้ดีกว่าเสียงไซน์มาก
-    let lastAlarmBurst = 0;
     function playAlarmTone() {
       if (audioMuted) return;
-      const now = Date.now();
-      if (now - lastAlarmBurst < 2000) return;   // ปล่อยชุดเสียงทุก 2 วินาที ไม่ให้ซ้อนกัน
-      lastAlarmBurst = now;
       try {
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-        const t0 = audioCtx.currentTime;
-        const pattern = [
-          { at: 0.00, f: 1320, d: 0.16 },
-          { at: 0.20, f:  990, d: 0.16 },
-          { at: 0.40, f: 1320, d: 0.16 },
-          { at: 0.60, f:  990, d: 0.22 }
-        ];
-        pattern.forEach(p => {
-          const osc  = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          osc.type = 'square';
-          osc.frequency.setValueAtTime(p.f, t0 + p.at);
-          gain.gain.setValueAtTime(0.0001, t0 + p.at);
-          gain.gain.exponentialRampToValueAtTime(0.32, t0 + p.at + 0.012);   // ขึ้นเร็ว = สะดุดหู
-          gain.gain.setValueAtTime(0.32, t0 + p.at + p.d - 0.03);
-          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + p.at + p.d);
-          osc.connect(gain); gain.connect(audioCtx.destination);
-          osc.start(t0 + p.at);
-          osc.stop(t0 + p.at + p.d + 0.02);
-        });
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.5);
       } catch (e) { console.log(e); }
     }
 
@@ -1181,24 +1103,11 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
       return { lvl: 1, text: `${rssi} dBm (อ่อน)`, color: '#e53e3e' };
     }
 
-    // คุณภาพลิงก์ = ได้รับแพ็กเก็ตกี่ % ของที่ควรได้ใน 10 วินาทีล่าสุด
-    // ต่างจาก RSSI: RSSI บอกว่าสัญญาณแรงแค่ไหน ส่วนค่านี้บอกว่า "ข้อมูลหายจริงหรือเปล่า"
-    // เตียงที่ RSSI ดีแต่ลิงก์ต่ำ = แพ็กเก็ตชนกัน ไม่ใช่สัญญาณอ่อน
-    function getLinkMeta(link, isOnline, weakPct) {
-      if (!isOnline) return { text: 'ลิงก์ -', color: '#a0aec0' };
-      if (link >= 90) return { text: `ลิงก์ ${link}% (เต็ม)`,  color: '#38a169' };
-      if (link >= weakPct) return { text: `ลิงก์ ${link}% (ดี)`, color: '#3182ce' };
-      if (link > 0) return { text: `ลิงก์ ${link}% (ตก)`, color: '#e53e3e' };
-      return { text: 'ลิงก์ กำลังวัด', color: '#a0aec0' };
-    }
-
     function renderStations(stationsData) {
       const container = document.getElementById('stationGridContainer');
       if (container.querySelector('.ack-btn:hover, .ack-btn:active')) return;   // ไม่วาดทับขณะกำลังกดปุ่มรับทราบ
       container.innerHTML = '';
       let hasAlarm = false;
-      const critList = [];   // เตียงที่ต้องไปดูเดี๋ยวนี้
-      const watchList = [];  // เตียงที่ใกล้หมด (เฝ้าดู ไม่ใช่เหตุวิกฤต)
 
       stationsData.forEach(st => {
         const isSel = (st.id === selectedStation) ? 'selected' : '';
@@ -1218,33 +1127,22 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
           cardState = 'paused-state';
         } else {
           statusBadge = `<span class="badge-status ${meta.cls}">${meta.text}</span>`;
-          // (1) ปกติ = กรอบสีเขียว / มีเหตุ = ใช้สีของเหตุนั้น
-          cardState = meta.card || 'normal-state';
+          cardState = meta.card;
           isAlarm = meta.alarm;
         }
-        if (isAlarm) {
-          hasAlarm = true;
-          critList.push(`<span class="ab-item">🛏️ <b>เตียง ${st.id}</b> — ${ALERT_SHORT[st.alertCode] || 'ต้องตรวจสอบ'}</span>`);
-        } else if (st.online && st.running && st.alertCode === 3) {
-          watchList.push(`เตียง ${st.id}`);
-        }
+        if (isAlarm) hasAlarm = true;
         const nearPending = st.online && st.running && st.alertCode === 3 && !st.nearEndAck;
         if (nearPending && !nearChimed[st.id]) { nearChimed[st.id] = true; playNearEndChime(); }
         if (!nearPending) nearChimed[st.id] = false;
-        // (2) ใกล้หมด: บอกเป็น "% ของสารน้ำ" แทนตัวเลข mL และบอกว่าเหลือเท่าไหร่ในกระปุก
-        const givenPct  = st.planVolume > 0 ? Math.min(100, (st.volumeMl / st.planVolume) * 100) : 0;
-        const remainMl  = st.planVolume > 0 ? Math.max(0, st.planVolume - st.volumeMl) : 0;
+        const nearMl = st.planVolume > 0 ? Math.round(st.planVolume * st.nearEndPct / 100) : 0;
         const nearHtml = st.planVolume > 0
-          ? (st.alertCode === 3
-              ? `<div class="near-line">🔔 ใกล้หมดแล้ว — ให้ไปแล้ว <b>${givenPct.toFixed(0)}% ของสารน้ำ</b> · เหลือในกระปุก <b>${remainMl.toFixed(0)} mL</b>${st.nearEndAck ? ' — รับทราบแล้ว' : ''}</div>`
-              : `<div class="near-line">🔔 จะเตือนเตรียมถุงใหม่เมื่อให้ไปแล้ว <b>${st.nearEndPct}% ของสารน้ำ</b></div>`)
+          ? `<div class="near-line">🔔 เตือนเตรียมถุงใหม่ที่ ${st.nearEndPct}% (${nearMl} mL)${st.alertCode === 3 && st.nearEndAck ? ' — รับทราบแล้ว' : ''}</div>`
           : '';
         const ackHtml = nearPending
           ? `<button class="ack-btn" onclick="acknowledgeNearEnd(${st.id}, event)">✅ รับทราบ เตรียมถุงใหม่ให้เตียง ${st.id}</button>`
           : '';
 
         const sig = getSignalMeta(st.rssi, st.online);
-        const lnk = getLinkMeta(st.link || 0, st.online, (lastHostData && lastHostData.linkWeakPct) || 60);
         const batText = st.battery > 0.5
           ? `🔋 ${st.battery.toFixed(2)}V (${Math.min(100, Math.max(0, Math.round(((st.battery - 3.2) / (4.2 - 3.2)) * 100)))}%)`
           : '🔋 N/A';
@@ -1275,22 +1173,12 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
             </div>
           </div>
           <div class="stat-row">
-            <span>คุณภาพลิงก์:</span>
-            <span class="val" style="color:${lnk.color};">${lnk.text}</span>
-          </div>
-          <div class="stat-row">
             <span>หยดสะสม:</span>
             <span class="val">${st.totalDrops} drops</span>
           </div>
           <div class="stat-row">
             <span>ปริมาตรให้แล้ว:</span>
             <span class="val" style="color:#2b6cb0;">${st.volumeMl.toFixed(1)}${planText}</span>
-          </div>
-          <div class="stat-row">
-            <span>เหลือในกระปุก:</span>
-            <span class="val" style="color:${remainMl > 0 && remainMl <= 100 ? '#c05621' : '#2d3748'};">
-              ${st.planVolume > 0 ? remainMl.toFixed(0) + ' mL' : '-'}
-            </span>
           </div>
           <div class="progress-track"><div class="progress-fill" style="width:${progress}%"></div></div>
           ${nearHtml}
@@ -1308,24 +1196,6 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
         `;
         container.appendChild(card);
       });
-
-      // (3) แถบแจ้งเตือนรวมบน Live Monitor — บอกชัดว่าเตียงไหนเป็นอะไร
-      const banner = document.getElementById('alertBanner');
-      const bannerList = document.getElementById('alertBannerList');
-      if (critList.length) {
-        bannerList.innerHTML = critList.join('');
-        banner.classList.add('show');
-      } else {
-        banner.classList.remove('show');
-      }
-
-      const watchEl = document.getElementById('watchBanner');
-      if (watchList.length) {
-        watchEl.innerHTML = `⏳ ใกล้หมด เตรียมถุงใหม่ให้ ${watchList.join(' · ')}`;
-        watchEl.classList.add('show');
-      } else {
-        watchEl.classList.remove('show');
-      }
 
       if (hasAlarm) playAlarmTone();
     }
@@ -1631,8 +1501,6 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
           let timeNote = '';
           if (!data.timeSynced) timeNote = data.timeApprox ? ' (เวลาโดยประมาณ)' : ' (ยังไม่ตั้งเวลา)';
           document.getElementById('hostClockDisplay').innerText = data.currentTime + timeNote;
-          const vb = document.getElementById('versionBadge');
-          if (vb && data.version) vb.innerText = 'v' + data.version;   // (5) อ่านเวอร์ชันจริงจาก Host
           document.getElementById('netStatusSubtitle').innerText =
             `AP: 192.168.4.1 · CH ${data.channel} · อุปกรณ์ ${data.apClients}/${data.apMaxClients} เครื่อง`;
           lastHostData = data;
