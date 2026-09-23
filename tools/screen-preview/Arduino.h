@@ -98,3 +98,21 @@ public:
 extern SerialClass Serial;
 class ESPClass { public: void restart() {} unsigned int getFreeHeap(){return 0;} };
 extern ESPClass ESP;
+
+// ---------------------------------------------------------------------------
+// นาฬิกาของโหมดจำลอง — ตรึงไว้ให้ภาพที่เรนเดอร์ออกมาเหมือนเดิมทุกครั้งที่รัน
+//
+// ของเดิมอ่านนาฬิกาจริงของเครื่อง ภาพหน้าจอจึงเปลี่ยนทุกครั้งที่รันชุดตรวจ
+// เพราะตัวเลขนาฬิกาบนจอขยับ ทำให้ git เห็นว่าไฟล์ภาพเปลี่ยนทั้งที่ไม่มีอะไรเปลี่ยนจริง
+// และทำให้เทียบภาพ "ก่อนแก้" กับ "หลังแก้" เพื่อพิสูจน์ว่าโค้ดไม่เปลี่ยนพฤติกรรมไม่ได้เลย
+//
+// เปลี่ยนเวลาที่ตรึงได้ด้วยตัวแปรสภาพแวดล้อม PREVIEW_EPOCH
+// ---------------------------------------------------------------------------
+#include <cstdlib>
+inline time_t previewNow() {
+  const char* e = getenv("PREVIEW_EPOCH");
+  if (e && *e) return (time_t)strtoll(e, nullptr, 10);
+  return (time_t)1789000200;   // ตรึงไว้ที่เวลาหนึ่งซึ่งอ่านง่ายบนจอ
+}
+inline time_t preview_time(time_t* out) { time_t n = previewNow(); if (out) *out = n; return n; }
+#define time(p) preview_time(p)

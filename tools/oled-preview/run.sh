@@ -7,11 +7,13 @@ OUT="${2:-../../docs/screens-oled}"
 NAME="$(basename "$SKETCH_DIR")"
 
 cp "$SKETCH_DIR/$NAME.ino" host_oled.cpp
-cp "$SKETCH_DIR/web_dashboard.h" web_dashboard.h
+# คัดลอกไฟล์ .h ทุกตัวของสเก็ตช์ ไม่ใช่แค่ web_dashboard.h
+# เพราะโค้ดวาดจอถูกแยกไปอยู่ HostScreen.h / StationScreen.h แล้ว
+for h in "$SKETCH_DIR"/*.h; do [ -e "$h" ] && cp "$h" "$(basename "$h")"; done
 g++ -std=gnu++17 -I../screen-preview -I. -DESP_ARDUINO_VERSION_MAJOR=3 \
     -Wall -Wno-unused-variable -Wno-format-truncation -o oledpreview driver.cpp
 ./oledpreview ops.txt
 python3 render_oled.py ops.txt "$OUT" 6
 python3 make_overview.py "$OUT"
-rm -f host_oled.cpp web_dashboard.h oledpreview ops.txt
+rm -f host_oled.cpp web_dashboard.h HostScreen.h oledpreview ops.txt
 echo "เสร็จแล้ว: ภาพอยู่ใน $OUT"

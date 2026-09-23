@@ -10,11 +10,12 @@ SKETCH="${2:-../../firmware/Station/Station.ino}"
 python3 ../check-ino-types.py "$SKETCH"
 
 cp "$SKETCH" station.cpp
-[ -f "$(dirname "$SKETCH")/drop_detector.h" ] && cp "$(dirname "$SKETCH")/drop_detector.h" drop_detector.h || true
+# คัดลอกไฟล์ .h ทุกตัวของสเก็ตช์ เพราะโค้ดวาดจอถูกแยกไปอยู่ StationScreen.h แล้ว
+for h in "$(dirname "$SKETCH")"/*.h; do [ -e "$h" ] && cp "$h" "$(basename "$h")"; done
 g++ -std=gnu++17 -I../screen-preview -DESP_ARDUINO_VERSION_MAJOR=3 -Wall -Wno-unused-variable -o stpreview driver.cpp
 ./stpreview ops.txt
 python3 ../screen-preview/render.py ops.txt "$OUT"
-rm -f station.cpp drop_detector.h stpreview ops.txt
+rm -f station.cpp drop_detector.h StationScreen.h stpreview ops.txt
 echo "เสร็จแล้ว: ภาพอยู่ใน $OUT"
 
 python3 make_overview.py "$OUT"

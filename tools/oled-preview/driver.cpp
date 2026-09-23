@@ -35,7 +35,7 @@ void emitMark(const char* n){ fprintf(g_ops,"MARK %s\n",n); }
 
 // ---- สตับของฟังก์ชันระบบที่เฟิร์มแวร์เรียกแต่ไม่เกี่ยวกับการวาดจอ ----
 bool getLocalTime(struct tm* info, unsigned long){
-  time_t t; time(&t); struct tm* g = localtime(&t); if (!g) return false; *info = *g; return true;
+  time_t t = previewNow(); struct tm* g = localtime(&t); if (!g) return false; *info = *g; return true;
 }
 void rtc_gpio_pullup_en(int){} void rtc_gpio_pulldown_dis(int){} void rtc_gpio_deinit(int){}
 int  esp_sleep_enable_ext0_wakeup(int,int){ return 0; }
