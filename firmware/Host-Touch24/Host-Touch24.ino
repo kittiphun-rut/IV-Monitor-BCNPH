@@ -1,86 +1,109 @@
 /**
- * ============================================================================
- * โครงการวิจัย: ผลของการใช้นวัตกรรม Smart IV Alert ต่อความแม่นยำในการแจ้งเตือนและปริมาณสารน้ำที่ได้รับ
- * หน่วยงาน: หอผู้ป่วยอายุรกรรม โรงพยาบาลสูงเม่น จังหวัดแพร่
- * สถาบัน: วิทยาลัยพยาบาลบรมราชชนนี แพร่ คณะพยาบาลศาสตร์ สถาบันพระบรมราชชนก
+ * @file      Host-Touch24.ino
+ * @brief     เฟิร์มแวร์เครื่องส่วนกลาง รุ่นจอสัมผัส 2.4 นิ้ว ตั้งค่าได้ที่หน้าเครื่อง
+ * @version   4.10.0-TOUCH
+ * @date      2026-09-23
+ * @author    นายกิตติพันธ์ รัตนคร <kittiphun.rut@mcu.ac.th>
  *
- * ระบบ: Central Host Gateway (เครื่องควบคุมและติดตามศูนย์กลาง)
- * เวอร์ชัน: 4.9.0-TOUCH (Protocol v3 — ใช้คู่กับ Bed Station Firmware 7.4.x / 7.5.x)
- * บอร์ดประมวลผล: ESP32-S3 Dev Module (N16R8) + จอสัมผัส 2.4" (ST7789V/ILI9341 240x320 + XPT2046)
- *                 + SD card (ช่องบนหลังจอ) + นาฬิกา DS3231 + Passive Buzzer + ปุ่ม multifunction
+ * @par Organization
+ * วิทยาลัยพยาบาลบรมราชชนนี แพร่ คณะพยาบาลศาสตร์ สถาบันพระบรมราชชนก
+ * หอผู้ป่วยอายุรกรรม โรงพยาบาลสูงเม่น จังหวัดแพร่
+ * อาจารย์ที่ปรึกษา ดร.กรรณิการ์ กาศสมบูรณ์
  *
- * ผู้พัฒนาระบบ: นายกิตติพันธ์ รัตนคร (นักวิชาการคอมพิวเตอร์ มจร. วิทยาเขตแพร่)
- * อาจารย์ที่ปรึกษา: ดร.กรรณิการ์ กาศสมบูรณ์ (วิทยาลัยพยาบาลบรมราชชนนี แพร่)
+ * @par Hardware
+ * ESP32-S3 Dev Module (N16R8) + จอสัมผัส 2.4" (ILI9341 + XPT2046 SPI 240x320)
+ * นาฬิกา DS3231 และการ์ด SD สำหรับบันทึกข้อมูลย้อนหลัง
  *
- * ---------------------------------------------------------------------------
- * เพิ่มใน V4.9.1: นาฬิกาสำรอง DS3231 และการบันทึกข้อมูลลง SD card
- *  - DS3231 (I2C) เก็บวันที่-เวลาไว้แม้ไฟดับ อ่านค่ามาตั้งเวลาระบบตอนบูตทันที
- *    และเมื่อเปิดหน้าเว็บจากมือถือ เวลาของเครื่องนั้นจะถูกเขียนลง DS3231 ให้ด้วย
- *    (เก็บเป็น UTC แล้วแปลงเป็นเวลาไทยตอนแสดงผล) ถ้าไม่มีโมดูลก็ยังใช้งานได้เหมือนเดิม
- *  - บันทึกข้อมูลรายนาทีของทุกเตียงลง SD card เป็นไฟล์ CSV วันละไฟล์
- *    พร้อมไฟล์บันทึกเหตุการณ์ (เกิดเหตุเตือน เริ่มถุงใหม่ แก้ค่า ตั้งเวลา) แยกอีกไฟล์
- *    ดาวน์โหลดไฟล์จากหน้าเว็บได้ และดูสถานะการ์ดได้จากหน้าตั้งค่าบนจอ
- *  - ถอด/ใส่การ์ดกลางคันได้ ระบบจะลองต่อการ์ดใหม่ให้เองทุก 30 วินาที
+ * @par Description
+ * ทำหน้าที่เหมือนรุ่นจอ OLED ทุกอย่าง และเพิ่มการตั้งค่าทั้งหมดบนจอสัมผัส
+ * ใช้งานคล้ายสมาร์ตโฟน มีแป้นตัวเลขสำหรับกรอกค่าตามแผนการรักษาที่หน้าเครื่อง
+ * จึงตั้งค่าได้โดยไม่ต้องเปิดหน้าเว็บ
  *
- * เปลี่ยนใน V4.9.0-TOUCH: ใช้จอสัมผัส 2.4" และทำหน้าจอให้ใช้งานเหมือนสมาร์ตโฟน
- *  - จอแนวตั้ง 240x320 พร้อมทัชสกรีนแบบความต้านทาน (XPT2046) ใช้ร่วมบัส SPI เดียวกับจอ
- *  - หน้าหลักแบบ FOCUS: เตียงที่ต้องดูตอนนี้ตัวใหญ่ + รายการเตียงอื่น แตะที่ใดก็เข้าดูเตียงนั้นได้
- *  - แตะเข้าไปในเตียงเพื่อสั่งงาน: เริ่มถุงใหม่ / รับทราบเตือนใกล้หมด / ตั้งค่าของเตียง
- *  - ตั้งค่าได้บนจอโดยตรง: อัตราเป้าหมาย ปริมาตรตามแผน Drop factor % เตือนใกล้หมด
- *    จำนวนเตียงที่ใช้งาน และความสว่างหน้าจอ (ปรับด้วยปุ่ม - + หรือแป้นตัวเลขบนจอ)
- *    ทุกค่ายังแก้จากหน้าเว็บได้เหมือนเดิม และบันทึกลง NVS ชุดเดียวกัน
- *  - มีหน้าปรับความแม่นของจอสัมผัส (Calibration) เก็บค่าไว้ใน NVS
- *  - ปุ่ม multifunction 1 ปุ่ม: คลิก = ย้อนกลับ/พักเสียง, ดับเบิลคลิก = ปิด/เปิดจอ,
- *    กดค้าง 2 วินาที = ปิดเครื่อง
- *  - หรี่จออัตโนมัติเมื่อไม่มีการใช้งาน 3 นาที แตะหน้าจอเพื่อกลับมาสว่าง
- *  - ตรรกะการวัด การแจ้งเตือน ESP-NOW และหน้าเว็บทั้งหมดเหมือน V4.8.0 ทุกประการ
+ * @par Revision History
+ * | Version | Date | Change |
+ * |---|---|---|
+ * | 4.10.0-TOUCH | 2026-09-23 | เตียงที่หายไประหว่างให้น้ำเกลือมีเสียงเตือนแล้ว เพิ่มสุนัขเฝ้าบ้าน รายงานสาเหตุการรีบูต และปฏิเสธแพ็กเก็ตที่ค่าเป็นไปไม่ได้ |
+ * | 4.9.3-TOUCH | 2026-09-23 | ย้ายโค้ดวาดจอออกไปไว้ที่ `HostScreen.h` ตรรกะไม่เปลี่ยนแม้แต่บรรทัดเดียว |
+ * | 4.9.2-TOUCH | 2026-09-23 | พอร์ตคุณสมบัติและการแก้บั๊กทั้งหมดจากรุ่นจอ OLED v4.7.3-v4.7.5 มาครบ |
+ * | 4.9.0-TOUCH | 2026-09-12 | สร้างรุ่นจอสัมผัส 2.4" ตั้งค่าได้บนจอ พร้อมนาฬิกา DS3231 และการ์ด SD |
  *
- * ---------------------------------------------------------------------------
- * เปลี่ยนใน V4.8.0-TFT: เปลี่ยนจอ OLED 1.3" ขาวดำ -> จอสี TFT 2.8" (ST7789V 240x320)
- *  - ใช้จอแนวนอน 320x240 ออกแบบหน้าจอใหม่แนวทาง "FOCUS"
- *    ครึ่งซ้าย = เตียงที่ต้องดูตอนนี้ (ตัวเลขใหญ่ อ่านได้จากระยะไกล)
- *    ครึ่งขวา  = รายการเตียงอื่นพร้อมอัตราไหลและแถบความคืบหน้า (ปรับขนาดแถวตามจำนวนเตียง)
- *    แถบล่าง   = สรุปเหตุการณ์ที่ต้องทำตอนนี้
- *  - เตียงที่ถูกเน้นเลือกอัตโนมัติ: เหตุวิกฤตมาก่อน ตามด้วยใกล้หมดถุง
- *    กดปุ่ม PAGE เพื่อเลื่อนดูเตียงอื่นเองได้ (กลับเป็นอัตโนมัติเมื่อมีเหตุใหม่)
- *  - มีจอเตือนเต็มจอสีแดงเมื่อเกิดเหตุวิกฤตและยังไม่พักเสียง
- *  - ตัดไลบรารี U8g2 ออก ใช้ Adafruit GFX + ST7789 แทน (เฟิร์มแวร์นี้รองรับจอ TFT อย่างเดียว)
- *  - ตรรกะการวัด การแจ้งเตือน ESP-NOW และหน้าเว็บทั้งหมดเหมือน V4.7.0 ทุกประการ
+ * @warning  ไฟล์วาดจอถูก `#include` ท้ายไฟล์นี้ก่อน `setup()` ห้ามย้ายขึ้นไปบนสุด
+ *           เพราะโค้ดในไฟล์นั้นใช้ตัวแปรและฟังก์ชันช่วยที่ประกาศไว้ด้านบน
  *
- * ---------------------------------------------------------------------------
- * เปลี่ยนใน V4.7.0: ตัดระบบจัดการ Wi-Fi (Router/อินเทอร์เน็ต) ออกทั้งหมด
- *  - Host ทำงานเป็น Access Point อย่างเดียว (WIFI_AP) ไม่ต่อ Router ไม่ใช้ NTP
- *    -> ไม่มีการสแกนช่อง/รีคอนเนกต์มาแย่งเวลาคลื่นวิทยุ ESP-NOW และ Web Server อีก
- *  - รองรับสมาร์ตโฟน/แท็บเล็ตพร้อมกันได้ถึง AP_MAX_CLIENTS เครื่อง (เดิมค่าปริยาย 4
- *    และในโหมด AP+STA เหลือใช้งานจริงเพียง 2-3 เครื่อง)
- *  - ปิดโหมดประหยัดพลังงานของ Wi-Fi (WIFI_PS_NONE) ให้ตอบสนองหลายเครื่องพร้อมกันได้นิ่ง
- *  - ESP-NOW ส่งผ่านอินเทอร์เฟซ AP (WIFI_IF_AP) เพราะไม่มี STA แล้ว
- *  - ตั้งเวลาจากนาฬิกาของเครื่องที่เปิดหน้าเว็บโดยอัตโนมัติ (แทน NTP) และสำรองเวลาไว้ใน NVS
- *    ทุก 10 นาที เพื่อให้เวลาไม่หายเมื่อไฟดับ (แสดงเป็น "เวลาโดยประมาณ" จนกว่าจะซิงก์ใหม่)
- *  - หน้าเว็บ: เอาเมนูจัดการ Wi-Fi ออก เหลือหน้าต่างแสดงข้อมูลจุดเชื่อมต่อแบบอ่านอย่างเดียว
- *    และหยุด Poll ข้อมูลเมื่อสลับแท็บไปทำอย่างอื่น (ลดภาระเมื่อมีผู้ใช้หลายเครื่อง)
+ * @warning  `struct_message` และ `struct_host_sync` ต้องเหมือนกันทุกไบต์ในทุกเฟิร์มแวร์
+ *           ตรวจด้วย `bash tools/protocol-test/run.sh` ก่อน commit ทุกครั้งที่แตะโครงสร้างนี้
  *
- * ---------------------------------------------------------------------------
- * เพิ่มใน V4.6.0: แจ้งเตือนใกล้หมด (เตรียมถุงใหม่)
- *  - ตั้ง % ต่อเตียงจากหน้าเว็บ (50-95%, ค่าเริ่มต้น 80%) เก็บถาวรใน NVS
- *  - Host เสียงเตือนเบา 3 ครั้ง ซ้ำทุก 5 นาทีจนกว่าจะรับทราบ (ที่เตียง / ปุ่ม POWER / หน้าเว็บ)
- *  - รับทราบแล้วซิงก์ไปทุกจุด และล้างเมื่อกด "เริ่มถุงใหม่" หรือแก้ปริมาตร/เปอร์เซ็นต์
+ * @warning  ยังไม่ได้ทดสอบบนฮาร์ดแวร์จริง ตรวจด้วยเครื่องมือจำลองบนเครื่อง PC เท่านั้น
  *
- * สรุปการแก้ไขจาก V4.4.1 (โค้ดภายในระบุ 6.3.2)
- *  1) แก้จุดที่คอมไพล์ไม่ผ่าน (ฟิลด์ใน StationData / ชื่อฟังก์ชัน-ตัวแปรใน loop)
- *  2) โครงสร้างแพ็กเก็ต ESP-NOW ตรงกับ Station ทุกไบต์ (มี static_assert ตรวจขนาด)
- *  3) Station ส่งอัตราไหลที่คำนวณจากช่วงห่างระหว่างหยด + เวลาตั้งแต่หยดล่าสุด
- *     -> เลิกคำนวณ rate จากหน้าต่าง 2 วินาทีที่ทำให้แจ้งเตือนสายพับผิด
- *  4) Host เป็นผู้ตัดสินรหัสเตือนจุดเดียว เรียก evaluateClinicalAlerts() ทุก 1 วินาที
- *  5) ส่ง Sync ทุก 1 วินาที (เดิม 10 วินาที ขณะที่ Station ตัดสินว่าหลุดที่ 5 วินาที)
- *  6) เพิ่ม API /api/stations/config และ /api/stations/reset
- *     ค่า Target Rate / Plan Volume / Drop Factor / ชื่อผู้ป่วย เก็บที่ Host (NVS)
- *  7) Drop factor ใช้ค่าของแต่ละเตียง (10/15/20/60) แทนค่าคงที่ 20
- *  8) นับหยดรายนาทีจากผลต่าง totalDrops -> แพ็กเก็ตหายไม่ทำให้ข้อมูลหาย
- *  9) SoftAP ล็อก Channel 1
- * 10) Deep sleep ใช้ ext0 wakeup (esp_deep_sleep_enable_gpio_wakeup ไม่รองรับ ESP32-S3)
- * 11) ปุ่ม POWER กดสั้นขณะมีเสียงเตือน = พักเสียง 2 นาที (Snooze)
- * ============================================================================
+ * @par บันทึกการเปลี่ยนแปลงโดยละเอียด
+ * เก็บข้อความเดิมไว้ทั้งหมด เพราะเหตุผลเชิงเทคนิคในนั้นหาจากที่อื่นไม่ได้
+ *                  + SD card (ช่องบนหลังจอ) + นาฬิกา DS3231 + Passive Buzzer + ปุ่ม multifunction
+ *
+ *
+ *  เพิ่มใน V4.9.1: นาฬิกาสำรอง DS3231 และการบันทึกข้อมูลลง SD card
+ *   - DS3231 (I2C) เก็บวันที่-เวลาไว้แม้ไฟดับ อ่านค่ามาตั้งเวลาระบบตอนบูตทันที
+ *     และเมื่อเปิดหน้าเว็บจากมือถือ เวลาของเครื่องนั้นจะถูกเขียนลง DS3231 ให้ด้วย
+ *     (เก็บเป็น UTC แล้วแปลงเป็นเวลาไทยตอนแสดงผล) ถ้าไม่มีโมดูลก็ยังใช้งานได้เหมือนเดิม
+ *   - บันทึกข้อมูลรายนาทีของทุกเตียงลง SD card เป็นไฟล์ CSV วันละไฟล์
+ *     พร้อมไฟล์บันทึกเหตุการณ์ (เกิดเหตุเตือน เริ่มถุงใหม่ แก้ค่า ตั้งเวลา) แยกอีกไฟล์
+ *     ดาวน์โหลดไฟล์จากหน้าเว็บได้ และดูสถานะการ์ดได้จากหน้าตั้งค่าบนจอ
+ *   - ถอด/ใส่การ์ดกลางคันได้ ระบบจะลองต่อการ์ดใหม่ให้เองทุก 30 วินาที
+ *
+ *  เปลี่ยนใน V4.9.0-TOUCH: ใช้จอสัมผัส 2.4" และทำหน้าจอให้ใช้งานเหมือนสมาร์ตโฟน
+ *   - จอแนวตั้ง 240x320 พร้อมทัชสกรีนแบบความต้านทาน (XPT2046) ใช้ร่วมบัส SPI เดียวกับจอ
+ *   - หน้าหลักแบบ FOCUS: เตียงที่ต้องดูตอนนี้ตัวใหญ่ + รายการเตียงอื่น แตะที่ใดก็เข้าดูเตียงนั้นได้
+ *   - แตะเข้าไปในเตียงเพื่อสั่งงาน: เริ่มถุงใหม่ / รับทราบเตือนใกล้หมด / ตั้งค่าของเตียง
+ *   - ตั้งค่าได้บนจอโดยตรง: อัตราเป้าหมาย ปริมาตรตามแผน Drop factor % เตือนใกล้หมด
+ *     จำนวนเตียงที่ใช้งาน และความสว่างหน้าจอ (ปรับด้วยปุ่ม - + หรือแป้นตัวเลขบนจอ)
+ *     ทุกค่ายังแก้จากหน้าเว็บได้เหมือนเดิม และบันทึกลง NVS ชุดเดียวกัน
+ *   - มีหน้าปรับความแม่นของจอสัมผัส (Calibration) เก็บค่าไว้ใน NVS
+ *   - ปุ่ม multifunction 1 ปุ่ม: คลิก = ย้อนกลับ/พักเสียง, ดับเบิลคลิก = ปิด/เปิดจอ,
+ *     กดค้าง 2 วินาที = ปิดเครื่อง
+ *   - หรี่จออัตโนมัติเมื่อไม่มีการใช้งาน 3 นาที แตะหน้าจอเพื่อกลับมาสว่าง
+ *   - ตรรกะการวัด การแจ้งเตือน ESP-NOW และหน้าเว็บทั้งหมดเหมือน V4.8.0 ทุกประการ
+ *
+ *  เปลี่ยนใน V4.8.0-TFT: เปลี่ยนจอ OLED 1.3" ขาวดำ -> จอสี TFT 2.8" (ST7789V 240x320)
+ *   - ใช้จอแนวนอน 320x240 ออกแบบหน้าจอใหม่แนวทาง "FOCUS"
+ *     ครึ่งซ้าย = เตียงที่ต้องดูตอนนี้ (ตัวเลขใหญ่ อ่านได้จากระยะไกล)
+ *     ครึ่งขวา  = รายการเตียงอื่นพร้อมอัตราไหลและแถบความคืบหน้า (ปรับขนาดแถวตามจำนวนเตียง)
+ *     แถบล่าง   = สรุปเหตุการณ์ที่ต้องทำตอนนี้
+ *   - เตียงที่ถูกเน้นเลือกอัตโนมัติ: เหตุวิกฤตมาก่อน ตามด้วยใกล้หมดถุง
+ *     กดปุ่ม PAGE เพื่อเลื่อนดูเตียงอื่นเองได้ (กลับเป็นอัตโนมัติเมื่อมีเหตุใหม่)
+ *   - มีจอเตือนเต็มจอสีแดงเมื่อเกิดเหตุวิกฤตและยังไม่พักเสียง
+ *   - ตัดไลบรารี U8g2 ออก ใช้ Adafruit GFX + ST7789 แทน (เฟิร์มแวร์นี้รองรับจอ TFT อย่างเดียว)
+ *   - ตรรกะการวัด การแจ้งเตือน ESP-NOW และหน้าเว็บทั้งหมดเหมือน V4.7.0 ทุกประการ
+ *
+ *  เปลี่ยนใน V4.7.0: ตัดระบบจัดการ Wi-Fi (Router/อินเทอร์เน็ต) ออกทั้งหมด
+ *   - Host ทำงานเป็น Access Point อย่างเดียว (WIFI_AP) ไม่ต่อ Router ไม่ใช้ NTP
+ *     -> ไม่มีการสแกนช่อง/รีคอนเนกต์มาแย่งเวลาคลื่นวิทยุ ESP-NOW และ Web Server อีก
+ *   - รองรับสมาร์ตโฟน/แท็บเล็ตพร้อมกันได้ถึง AP_MAX_CLIENTS เครื่อง (เดิมค่าปริยาย 4
+ *     และในโหมด AP+STA เหลือใช้งานจริงเพียง 2-3 เครื่อง)
+ *   - ปิดโหมดประหยัดพลังงานของ Wi-Fi (WIFI_PS_NONE) ให้ตอบสนองหลายเครื่องพร้อมกันได้นิ่ง
+ *   - ESP-NOW ส่งผ่านอินเทอร์เฟซ AP (WIFI_IF_AP) เพราะไม่มี STA แล้ว
+ *   - ตั้งเวลาจากนาฬิกาของเครื่องที่เปิดหน้าเว็บโดยอัตโนมัติ (แทน NTP) และสำรองเวลาไว้ใน NVS
+ *     ทุก 10 นาที เพื่อให้เวลาไม่หายเมื่อไฟดับ (แสดงเป็น "เวลาโดยประมาณ" จนกว่าจะซิงก์ใหม่)
+ *   - หน้าเว็บ: เอาเมนูจัดการ Wi-Fi ออก เหลือหน้าต่างแสดงข้อมูลจุดเชื่อมต่อแบบอ่านอย่างเดียว
+ *     และหยุด Poll ข้อมูลเมื่อสลับแท็บไปทำอย่างอื่น (ลดภาระเมื่อมีผู้ใช้หลายเครื่อง)
+ *
+ *  เพิ่มใน V4.6.0: แจ้งเตือนใกล้หมด (เตรียมถุงใหม่)
+ *   - ตั้ง % ต่อเตียงจากหน้าเว็บ (50-95%, ค่าเริ่มต้น 80%) เก็บถาวรใน NVS
+ *   - Host เสียงเตือนเบา 3 ครั้ง ซ้ำทุก 5 นาทีจนกว่าจะรับทราบ (ที่เตียง / ปุ่ม POWER / หน้าเว็บ)
+ *   - รับทราบแล้วซิงก์ไปทุกจุด และล้างเมื่อกด "เริ่มถุงใหม่" หรือแก้ปริมาตร/เปอร์เซ็นต์
+ *
+ *  สรุปการแก้ไขจาก V4.4.1 (โค้ดภายในระบุ 6.3.2)
+ *   1) แก้จุดที่คอมไพล์ไม่ผ่าน (ฟิลด์ใน StationData / ชื่อฟังก์ชัน-ตัวแปรใน loop)
+ *   2) โครงสร้างแพ็กเก็ต ESP-NOW ตรงกับ Station ทุกไบต์ (มี static_assert ตรวจขนาด)
+ *   3) Station ส่งอัตราไหลที่คำนวณจากช่วงห่างระหว่างหยด + เวลาตั้งแต่หยดล่าสุด
+ *      -> เลิกคำนวณ rate จากหน้าต่าง 2 วินาทีที่ทำให้แจ้งเตือนสายพับผิด
+ *   4) Host เป็นผู้ตัดสินรหัสเตือนจุดเดียว เรียก evaluateClinicalAlerts() ทุก 1 วินาที
+ *   5) ส่ง Sync ทุก 1 วินาที (เดิม 10 วินาที ขณะที่ Station ตัดสินว่าหลุดที่ 5 วินาที)
+ *   6) เพิ่ม API /api/stations/config และ /api/stations/reset
+ *      ค่า Target Rate / Plan Volume / Drop Factor / ชื่อผู้ป่วย เก็บที่ Host (NVS)
+ *   7) Drop factor ใช้ค่าของแต่ละเตียง (10/15/20/60) แทนค่าคงที่ 20
+ *   8) นับหยดรายนาทีจากผลต่าง totalDrops -> แพ็กเก็ตหายไม่ทำให้ข้อมูลหาย
+ *   9) SoftAP ล็อก Channel 1
+ *  10) Deep sleep ใช้ ext0 wakeup (esp_deep_sleep_enable_gpio_wakeup ไม่รองรับ ESP32-S3)
+ *  11) ปุ่ม POWER กดสั้นขณะมีเสียงเตือน = พักเสียง 2 นาที (Snooze)
  */
 
 #include <WiFi.h>
@@ -100,8 +123,22 @@
 #include <time.h>
 #include <sys/time.h>
 #include <driver/rtc_io.h>
+#include <esp_task_wdt.h>          // [4.10.0-TOUCH] เพิ่ม: สุนัขเฝ้าบ้าน กันเครื่องค้างเงียบ
+#include <esp_system.h>            // [4.10.0-TOUCH] เพิ่ม: อ่านสาเหตุการรีบูตครั้งล่าสุด
 
-#define APP_VERSION         "4.9.3-TOUCH"
+// ----------------------------------------------------------------------------
+// สุนัขเฝ้าบ้านและสาเหตุการรีบูต ([4.10.0-TOUCH] เพิ่มทั้งหมด)
+//
+// เครื่องนี้ทำหน้าที่เตือนภัย การค้างแบบเงียบจึงอันตรายกว่าการรีบูต เพราะจอยัง
+// ค้างภาพเดิมไว้ พยาบาลจึงเข้าใจว่าระบบยังเฝ้าอยู่ ทั้งที่หยุดไปแล้ว
+// ตั้งไว้ 8 วินาที ซึ่งยาวกว่ารอบ loop() ปกติหลายเท่า จึงไม่รีบูตเพราะงานหนักชั่วคราว
+// ----------------------------------------------------------------------------
+#define LOOP_WDT_TIMEOUT_S      8
+
+esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
+
+
+#define APP_VERSION         "4.10.0-TOUCH"
 #define DEV_NAME            "กิตติพันธ์ รัตนคร"
 #define DEV_ROLE            "นักวิชาการคอมพิวเตอร์"
 #define DEV_INSTITUTION     "มหาวิทยาลัยมหาจุฬาลงกรณราชวิทยาลัย วิทยาเขตแพร่"
@@ -155,6 +192,9 @@
 #define ESPNOW_CHANNEL          1        // ช่อง SoftAP / ESP-NOW เริ่มต้น
 #define SYNC_INTERVAL_MS        1000     // ส่ง Sync ให้ Station ทุก 1 วินาที
 #define ONLINE_TIMEOUT_MS       8000     // ไม่ได้รับข้อมูลเกิน 8 วินาที = OFFLINE
+#define LOST_LINK_GRACE_MS      30000    // [4.10.0-TOUCH] เพิ่ม: เงียบต่อจาก OFFLINE อีกเท่านี้จึงถือว่าขาดการติดต่อจริง
+#define MAX_PLAUSIBLE_RATE_HR   3000.0f  // [4.10.0-TOUCH] เพิ่ม: ชุดให้สารน้ำมาตรฐานไหลได้ไม่ถึงเท่านี้
+#define MAX_PLAUSIBLE_BATT_V    6.0f     // [4.10.0-TOUCH] เพิ่ม: แบตลิเธียมเซลล์เดียว ไม่มีทางถึง 6 โวลต์
                                          // เดิม 5 วินาที สั้นเกินไปเมื่อมีหลายเตียง
                                          // ทำให้เตียงหายไปชั่วครู่ทั้งที่เครื่องยังทำงาน
 #define LINK_WINDOW_MS          10000UL  // หน้าต่างวัดคุณภาพลิงก์ (คาดหวัง 10 ใบ)
@@ -184,6 +224,7 @@
 #define ALERT_COMPLETE    4   // ให้ครบตามแผนแล้ว
 #define ALERT_OCCLUSION   5   // สายพับ / หยุดไหล
 #define ALERT_NO_SIGNAL   6   // เซนเซอร์ยังไม่จับหยดเลย (คนละเรื่องกับสายพับ)
+#define ALERT_LOST_LINK   7   // [4.10.0-TOUCH] เพิ่ม: เตียงที่กำลังให้น้ำเกลือหายไปจากอากาศ (ใช้ฝั่ง Host เท่านั้น)
 
 SPIClass SPI_TFT(FSPI);
 Adafruit_ST7789 tft = Adafruit_ST7789(&SPI_TFT, TFT_CS, TFT_DC, TFT_RST);
@@ -320,6 +361,8 @@ struct StationData {
   unsigned long deviationSince = 0;
   uint8_t nearEndPct = DEFAULT_NEAR_END_PCT;   // เก็บแยก key ใน NVS เพื่อไม่ให้ค่าตั้งเดิมหาย
   bool nearEndAck = false;
+  bool wasMonitoring = false;   // [4.10.0-TOUCH] เพิ่ม: เคยเห็นเตียงนี้ออนไลน์และกำลังนับอยู่จริง
+  bool lostLinkAck = false;     // [4.10.0-TOUCH] เพิ่ม: พยาบาลรับทราบว่าเตียงนี้ขาดการติดต่อแล้ว
   unsigned long nearNextChime = 0;
 
   // ---- คุณภาพลิงก์: ได้รับจริงกี่ % ของที่ควรได้ใน 10 วินาทีล่าสุด ----
@@ -396,6 +439,47 @@ void openNumpad(int field);
 // ----------------------------------------------------------------------------
 // ฟังก์ชันช่วย
 // ----------------------------------------------------------------------------
+// เรียกได้ทุกที่ รวมถึงก่อนสมัครสมาชิก — ถ้ายังไม่ได้สมัครจะคืนค่าผิดพลาดเฉย ๆ
+inline void feedWatchdog() {
+  esp_task_wdt_reset();
+}
+
+void setupLoopWatchdog() {
+#if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  esp_task_wdt_config_t wdtCfg = {};
+  wdtCfg.timeout_ms     = LOOP_WDT_TIMEOUT_S * 1000;
+  wdtCfg.idle_core_mask = 0;            // ไม่เฝ้างานว่าง เฝ้าเฉพาะ loop() ของเรา
+  wdtCfg.trigger_panic  = true;         // ค้างจริง = รีบูต ดีกว่าค้างเงียบต่อไป
+  // core 3.x เปิดตัวเฝ้าไว้ให้แล้วในบางการตั้งค่า จึงต้องเผื่อทางตั้งค่าใหม่ด้วย
+  if (esp_task_wdt_init(&wdtCfg) == ESP_ERR_INVALID_STATE) esp_task_wdt_reconfigure(&wdtCfg);
+#else
+  esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
+#endif
+  esp_task_wdt_add(NULL);
+}
+
+// ปิดการเฝ้าก่อนเข้าโหมดหลับ มิฉะนั้นการรอให้ปล่อยปุ่มจะถูกนับว่าค้าง
+void stopLoopWatchdog() {
+  esp_task_wdt_delete(NULL);
+}
+
+// ข้อความสั้น ๆ ไว้แสดงในหน้าเว็บและใน Serial เพื่อให้ตามรอยปัญหาในวอร์ดจริงได้
+const char* resetReasonText(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON:  return "power-on";
+    case ESP_RST_EXT:      return "external";
+    case ESP_RST_SW:       return "software";
+    case ESP_RST_PANIC:    return "panic";
+    case ESP_RST_INT_WDT:  return "int-wdt";
+    case ESP_RST_TASK_WDT: return "task-wdt";
+    case ESP_RST_WDT:      return "other-wdt";
+    case ESP_RST_DEEPSLEEP:return "deep-sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO:     return "sdio";
+    default:               return "unknown";
+  }
+}
+
 uint8_t safeDropFactor(uint8_t df) {
   return (df == 10 || df == 15 || df == 20 || df == 60) ? df : 20;
 }
@@ -403,7 +487,8 @@ uint8_t safeDropFactor(uint8_t df) {
 bool isCriticalAlert(uint8_t code) {
   return code == ALERT_TOO_FAST || code == ALERT_TOO_SLOW ||
          code == ALERT_COMPLETE || code == ALERT_OCCLUSION ||
-         code == ALERT_NO_SIGNAL;
+         code == ALERT_NO_SIGNAL ||
+         code == ALERT_LOST_LINK;
 }
 
 uint8_t safeNearPct(uint8_t p) {
@@ -419,6 +504,16 @@ bool isStationOnline(int i) {
   if (lr == 0) return false;
   unsigned long now = millis();
   return (now < lr) || (now - lr < ONLINE_TIMEOUT_MS);
+}
+
+// [4.10.0-TOUCH] เพิ่ม: เตียงที่กำลังให้น้ำเกลืออยู่ แล้วเงียบหายไปจากอากาศ
+// ต้องเคยเห็นว่าออนไลน์และกำลังนับมาก่อน เตียงที่ยังไม่เคยเปิดใช้จึงไม่ร้อง
+bool isStationLostLink(int i) {
+  const StationData &s = stations[i];
+  if (!s.wasMonitoring || s.lostLinkAck) return false;
+  if (isStationOnline(i)) return false;
+  if (s.lastRecvTime == 0) return false;
+  return (millis() - s.lastRecvTime) > (ONLINE_TIMEOUT_MS + LOST_LINK_GRACE_MS);
 }
 
 // เกณฑ์เวลา "ไม่มีหยด" = 2.5 เท่าของช่วงหยดตามเป้าหมาย (ขั้นต่ำ 8 วินาที) — สูตรเดียวกับ Station
@@ -447,6 +542,7 @@ const char* alertTextEn(uint8_t code) {
     case ALERT_NEAR_END:  return "NEXT BAG";
     case ALERT_COMPLETE:  return "BAG EMPTY";
     case ALERT_OCCLUSION: return "OCCLUSION";
+    case ALERT_LOST_LINK: return "BED LOST";
     default:              return "NORMAL";
   }
 }
@@ -741,7 +837,8 @@ uint16_t syncSlotIntervalMs() {
 // รหัสที่ส่งออกไปให้ Station — Station รุ่นเก่าไม่รู้จัก ALERT_NO_SIGNAL
 // จึงต้องแปลงเป็น ALERT_NONE เสมอ เพื่อให้เข้ากันได้กับทุกรุ่นตั้งแต่ 7.4.x ขึ้นไป
 uint8_t alertCodeForStation(uint8_t code) {
-  return (code == ALERT_NO_SIGNAL) ? ALERT_NONE : code;
+  // [4.10.0-TOUCH] แก้: กันรหัส 7 ไม่ให้หลุดออกไป Station รุ่นเดิมไม่รู้จัก
+  return (code == ALERT_NO_SIGNAL || code == ALERT_LOST_LINK) ? ALERT_NONE : code;
 }
 
 void sendSyncForStation(int i) {
@@ -921,6 +1018,7 @@ void playShutdownMelody() {
 // ระบบควบคุม Power & Deep Sleep (ESP32-S3 ใช้ ext0 wakeup)
 // ----------------------------------------------------------------------------
 void enterDeepSleepWaitPowerButton() {
+  stopLoopWatchdog();   // [4.10.0-TOUCH] เพิ่ม: เลิกเฝ้าก่อนหลับ ไม่งั้นถูกนับว่าค้าง
   rtc_gpio_pullup_en((gpio_num_t)POWER_BTN_PIN);
   rtc_gpio_pulldown_dis((gpio_num_t)POWER_BTN_PIN);
   esp_sleep_enable_ext0_wakeup((gpio_num_t)POWER_BTN_PIN, 0);
@@ -934,7 +1032,7 @@ void powerOffSystem() {
 
   playShutdownMelody();
 
-  while (digitalRead(POWER_BTN_PIN) == LOW) delay(20);
+  while (digitalRead(POWER_BTN_PIN) == LOW) { feedWatchdog(); delay(20); }
   delay(200);
 
   tft.fillScreen(0x0000);
@@ -959,7 +1057,23 @@ void evaluateClinicalAlerts() {
 
   for (int i = 0; i < activeStationCount; i++) {
     StationData &s = stations[i];
-    if (!isStationOnline(i) || !s.isRunning) {
+    // [4.10.0-TOUCH] แก้: แยก "ติดต่อเตียงไม่ได้" ออกจาก "พยาบาลสั่งหยุด" ของเดิมรวมสองกรณีนี้
+    // ไว้ด้วยกันแล้วล้างรหัสเตือนทิ้งทั้งคู่ เตียงที่กำลังให้น้ำเกลืออยู่แล้วหายไป
+    // จากอากาศจึงไม่มีเสียงใด ๆ ทั้งที่ระบบเลิกเฝ้าเตียงนั้นไปแล้ว
+    if (!isStationOnline(i)) {
+      uint8_t lost = isStationLostLink(i) ? ALERT_LOST_LINK : ALERT_NONE;
+      if (s.alertCode != lost) requestSyncNow(i);   // ยกเลิกเตือนที่ Station ทันที
+      s.alertCode = lost;
+      s.deviationSince = 0;
+      if (lost != ALERT_NONE) anyCritical = true;   // รหัสนี้ตัดสินตรงนี้ เพราะข้ามส่วนท้ายไป
+      continue;
+    }
+
+    // ติดต่อได้ตามปกติ = ล้างสถานะขาดการติดต่อทิ้ง พร้อมรับเหตุการณ์ครั้งใหม่
+    s.lostLinkAck = false;
+    s.wasMonitoring = s.isRunning;        // เฝ้าอยู่จริงเฉพาะตอนที่กำลังนับ
+
+    if (!s.isRunning) {
       if (s.alertCode != ALERT_NONE) requestSyncNow(i);   // ยกเลิกเตือนที่ Station ทันที
       s.alertCode = ALERT_NONE;
       s.deviationSince = 0;
@@ -1174,6 +1288,15 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingDataBytes, int len) {
   struct_message incoming;
   memcpy(&incoming, incomingDataBytes, sizeof(incoming));
   if (incoming.stationId < 1 || incoming.stationId > MAX_SUPPORTED_STATIONS) return;
+
+  // [4.10.0-TOUCH] เพิ่ม: ปฏิเสธค่าที่เป็นไปไม่ได้ทางกายภาพ
+  // แพ็กเก็ต ESP-NOW เป็นการกระจายเปล่า ไม่มีลายเซ็นและไม่มีเลขตรวจสอบ การตรวจเดิม
+  // มีแค่ความยาวกับช่วงของเลขเตียง อุปกรณ์อื่นที่บังเอิญส่งขนาด 23 ไบต์ในช่องเดียวกัน
+  // จึงถูกตีความเป็นข้อมูลเตียงได้ ทำให้ตัวเลขบนจอกระโดดและอาจปลุกเสียงเตือนผิด
+  // เขียนกลับด้านเพื่อให้ดัก NaN ไปด้วยในตัว (การเทียบใด ๆ กับ NaN เป็นเท็จเสมอ)
+  if (incoming.isRunning > 1) return;
+  if (!(incoming.flowRateHr   >= 0.0f && incoming.flowRateHr   <= MAX_PLAUSIBLE_RATE_HR)) return;
+  if (!(incoming.batteryVolts >= 0.0f && incoming.batteryVolts <= MAX_PLAUSIBLE_BATT_V)) return;
 
   int idx = incoming.stationId - 1;
 
@@ -1959,6 +2082,8 @@ void handleApiData() {
   json.reserve(3000);
   json = "{";
   json += "\"version\":\"" APP_VERSION "\",";
+  // [4.10.0-TOUCH] เพิ่ม: เครื่องรีบูตเองแล้วไม่มีใครรู้สาเหตุ = หาต้นตอในวอร์ดจริงไม่ได้
+  json += "\"resetReason\":\"" + String(resetReasonText(bootResetReason)) + "\",";
   json += "\"activeCount\":" + String(activeStationCount) + ",";
   json += "\"currentTime\":\"" + getFormattedDateTime() + "\",";
   json += "\"timeSynced\":" + String(isTimeSynced ? "true" : "false") + ",";
@@ -2109,6 +2234,7 @@ void handleStationAck() {
   int idx = parseStationArg();
   if (idx < 0) { server.send(400, "text/plain", "Invalid station"); return; }
   stations[idx].nearEndAck = true;
+  stations[idx].lostLinkAck = true;   // [4.10.0-TOUCH] เพิ่ม: ปุ่มรับทราบเดิมใช้ปิดเสียงเตียงที่ขาดการติดต่อได้ด้วย
   requestSyncNow(idx);
   server.send(200, "application/json", "{\"ok\":true}");
 }
@@ -2342,6 +2468,7 @@ void setup() {
     bool validHoldToTurnOn = false;
 
     while (digitalRead(POWER_BTN_PIN) == LOW) {
+      feedWatchdog();
       if (millis() - pressStart >= 1500) {
         validHoldToTurnOn = true;
         break;
@@ -2350,14 +2477,18 @@ void setup() {
     }
 
     if (!validHoldToTurnOn) {
-      while (digitalRead(POWER_BTN_PIN) == LOW) delay(10);
+      while (digitalRead(POWER_BTN_PIN) == LOW) { feedWatchdog(); delay(10); }
       delay(100);
       enterDeepSleepWaitPowerButton();
     }
 
-    while (digitalRead(POWER_BTN_PIN) == LOW) delay(10);
+    while (digitalRead(POWER_BTN_PIN) == LOW) { feedWatchdog(); delay(10); }
     delay(150);
-  }
+  
+  bootResetReason = esp_reset_reason();   // [4.10.0-TOUCH] เพิ่ม: จำไว้ว่ารีบูตครั้งล่าสุดเพราะอะไร
+  Serial.printf("[boot] reset reason: %s\n", resetReasonText(bootResetReason));
+  setupLoopWatchdog();
+}
 
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
@@ -2479,6 +2610,7 @@ void setup() {
 //  Main Execution Loop
 // ==========================================
 void loop() {
+  feedWatchdog();   // [4.10.0-TOUCH] เพิ่ม: บอกสุนัขเฝ้าบ้านว่ายังเดินอยู่
   server.handleClient();
 
   checkMultifunctionButton();
@@ -2523,7 +2655,7 @@ void loop() {
   }
 
   // เลือกเตียงเองแล้วปล่อยไว้ครบเวลา -> กลับไปโหมดเลือกอัตโนมัติ
-  if (manualFocusBed >= 0 && currentMillis > manualFocusUntil) {
+  if (manualFocusBed >= 0 && (long)(currentMillis - manualFocusUntil) >= 0) {   // [4.10.0-TOUCH] แก้: เทียบผลต่างแบบมีเครื่องหมาย จึงทนการวนรอบของ millis()
     manualFocusBed = -1;
     uiNeedFramework = true;
   }

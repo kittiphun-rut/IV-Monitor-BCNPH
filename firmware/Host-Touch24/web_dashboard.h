@@ -1,22 +1,43 @@
-#pragma once
 /**
- * ============================================================================
- * หน้าเว็บ Dashboard ของระบบ Smart IV Alert (Central Host)
- * ----------------------------------------------------------------------------
- * แยกออกมาจากไฟล์ .ino หลัก เพื่อให้ส่วนเฟิร์มแวร์ (การวัด การแจ้งเตือน ESP-NOW
- * และการแสดงผลบนจอ) อ่านและแก้ไขได้ง่ายขึ้น — ไฟล์นี้เก็บเฉพาะ HTML/CSS/JavaScript
- * ของหน้าเว็บที่ส่งให้เบราว์เซอร์เท่านั้น ไม่มีตรรกะของเครื่อง
+ * @file      web_dashboard.h
+ * @brief     หน้าเว็บ Dashboard ของเครื่องส่วนกลาง รุ่นจอสัมผัส 2.4 นิ้ว
+ * @version   4.10.0
+ * @date      2026-09-23
+ * @author    นายกิตติพันธ์ รัตนคร <kittiphun.rut@mcu.ac.th>
  *
- * วิธีแก้ไข
- *  - แก้หน้าตา/ข้อความของหน้าเว็บ ให้แก้ในไฟล์นี้ไฟล์เดียว
- *  - ข้อความทั้งก้อนอยู่ใน raw string R"rawliteral( ... )rawliteral"
- *    จึงใส่เครื่องหมาย " ได้ตามปกติ แต่ห้ามมีข้อความ )rawliteral" อยู่ข้างใน
- *  - ตัวแปรชื่อ PAGE_INDEX ถูกส่งออกด้วย server.send_P() ในไฟล์ .ino
- *  - ไฟล์นี้ต้องอยู่ในโฟลเดอร์เดียวกับไฟล์ .ino (Arduino IDE จะคอมไพล์ให้เอง)
+ * @par Organization
+ * วิทยาลัยพยาบาลบรมราชชนนี แพร่ คณะพยาบาลศาสตร์ สถาบันพระบรมราชชนก
+ * หอผู้ป่วยอายุรกรรม โรงพยาบาลสูงเม่น จังหวัดแพร่
+ * อาจารย์ที่ปรึกษา ดร.กรรณิการ์ กาศสมบูรณ์
  *
- * ขนาดโดยประมาณ 90 KB เก็บใน Flash (PROGMEM) ไม่กิน RAM ระหว่างทำงาน
- * ============================================================================
+ * @par Description
+ * หน้าเว็บทั้งหน้าเก็บเป็นสตริงเดียวใน PROGMEM แล้วส่งให้เบราว์เซอร์
+ *
+ * @par Revision History
+ * | Version | Date | Change |
+ * |---|---|---|
+ * | 4.10.0 | 2026-09-23 | หน้าเว็บขึ้นแดงเป็นเหตุวิกฤตเมื่อเตียงที่กำลังให้น้ำเกลือหายไปจากอากาศ |
+ * | 4.9.2 | 2026-09-23 | เพิ่มแถบวินิจฉัย คุณภาพลิงก์ และการเตือนเลขเตียงซ้ำ ให้เท่ารุ่นจอ OLED |
+ * | 4.9.0 | 2026-09-12 | แยกหน้าเว็บออกจากไฟล์ .ino มาไว้ในไฟล์นี้ |
+ *
+ * @par บันทึกการเปลี่ยนแปลงโดยละเอียด
+ * เก็บข้อความเดิมไว้ทั้งหมด เพราะเหตุผลเชิงเทคนิคในนั้นหาจากที่อื่นไม่ได้
+ *  หน้าเว็บ Dashboard ของระบบ Smart IV Alert (Central Host)
+ *  แยกออกมาจากไฟล์ .ino หลัก เพื่อให้ส่วนเฟิร์มแวร์ (การวัด การแจ้งเตือน ESP-NOW
+ *  และการแสดงผลบนจอ) อ่านและแก้ไขได้ง่ายขึ้น — ไฟล์นี้เก็บเฉพาะ HTML/CSS/JavaScript
+ *  ของหน้าเว็บที่ส่งให้เบราว์เซอร์เท่านั้น ไม่มีตรรกะของเครื่อง
+ *
+ *  วิธีแก้ไข
+ *   - แก้หน้าตา/ข้อความของหน้าเว็บ ให้แก้ในไฟล์นี้ไฟล์เดียว
+ *   - ข้อความทั้งก้อนอยู่ใน raw string R"rawliteral( ... )rawliteral"
+ *     จึงใส่เครื่องหมาย " ได้ตามปกติ แต่ห้ามมีข้อความ )rawliteral" อยู่ข้างใน
+ *   - ตัวแปรชื่อ PAGE_INDEX ถูกส่งออกด้วย server.send_P() ในไฟล์ .ino
+ *   - ไฟล์นี้ต้องอยู่ในโฟลเดอร์เดียวกับไฟล์ .ino (Arduino IDE จะคอมไพล์ให้เอง)
+ *
+ *  ขนาดโดยประมาณ 90 KB เก็บใน Flash (PROGMEM) ไม่กิน RAM ระหว่างทำงาน
  */
+
+#pragma once
 
 #include <Arduino.h>
 
@@ -816,7 +837,8 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
       3: { text: '⏳ ใกล้หมด เตรียมถุงใหม่', cls: 'badge-warn',   card: 'warn-state',  alarm: false },
       4: { text: '🛑 ให้ครบตามแผนแล้ว',   cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
       5: { text: '⚠️ สายพับ/หยุดไหล',     cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
-      6: { text: '🔍 เซนเซอร์ยังไม่จับหยด', cls: 'badge-alarm',  card: 'alarm-state', alarm: true  }
+      6: { text: '🔍 เซนเซอร์ยังไม่จับหยด', cls: 'badge-alarm',  card: 'alarm-state', alarm: true  },
+      7: { text: '📵 ติดต่อเตียงไม่ได้',    cls: 'badge-alarm',  card: 'alarm-state', alarm: true  }
     };
 
     function escapeHtml(str) {
@@ -1173,8 +1195,15 @@ const char PAGE_INDEX[] PROGMEM = R"rawliteral(
         let cardState = '';
         let isAlarm = false;
 
+        // [4.10.0] แก้: เตียงที่หายไประหว่างให้น้ำเกลือ ต้องขึ้นแดงเหมือนเหตุวิกฤตอื่น
         if (!st.online) {
-          statusBadge = '<span class="badge-status badge-offline">○ Offline</span>';
+          if (st.alertCode === 7) {
+            statusBadge = `<span class="badge-status ${meta.cls}">${meta.text}</span>`;
+            cardState = meta.card;
+            isAlarm = true;
+          } else {
+            statusBadge = '<span class="badge-status badge-offline">○ Offline</span>';
+          }
         } else if (isPaused) {
           statusBadge = '<span class="badge-status badge-paused">⏸️ หยุดชั่วคราว</span>';
           cardState = 'paused-state';

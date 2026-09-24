@@ -18,6 +18,7 @@
 #define CHANGE 3
 #define IRAM_ATTR
 #define PROGMEM
+#define RTC_DATA_ATTR      // บนเครื่อง PC ไม่มีหน่วยความจำ RTC ตัวแปรจึงเป็นตัวแปรทั่วไป
 #define F(x) (x)
 #include <sys/time.h>
 typedef unsigned char byte;
