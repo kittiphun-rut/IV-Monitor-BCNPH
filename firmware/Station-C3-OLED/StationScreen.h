@@ -1,7 +1,7 @@
 /**
  * @file      StationScreen.h
  * @brief     ทุกอย่างที่วาดลงจอ OLED 0.42 นิ้ว (72x40) ของเครื่องประจำเตียงรุ่นบอร์ดเล็ก
- * @version   1.0.0-C3
+ * @version   1.2.0-C3
  * @date      2026-09-23
  * @author    นายกิตติพันธ์ รัตนคร <kittiphun.rut@mcu.ac.th>
  *
@@ -18,6 +18,7 @@
  * @par Revision History
  * | Version | Date | Change |
  * |---|---|---|
+ * | 1.2.0-C3 | 2026-09-24 | เพิ่มหน้าจอของตัวช่วยคาลิเบรตสี่ขั้นตอน |
  * | 1.0.0-C3 | 2026-09-23 | ออกแบบหน้าจอ 72x40 ใหม่ทั้งหมดสำหรับบอร์ด ESP32-C3 |
  *
  * @warning  ถูก `#include` ท้ายไฟล์หลักก่อน `setup()` ห้ามย้ายขึ้นไปบนสุด
@@ -376,6 +377,112 @@ void drawSaverScreen() {
 }
 
 // ---------------------------------------------------------------------------
+// ตัวช่วยคาลิเบรตสี่ขั้นตอน ([1.2.0-C3] เพิ่มทั้งหมด)
+//
+// จอ 72x40 เล็กเกินกว่าจะแสดงกราฟสัญญาณแบบสายหลัก จึงใช้หลัก "หนึ่งหน้าจอ
+// หนึ่งคำตอบ" ให้สุดทาง แต่ละขั้นบอกสามอย่างเท่านั้น
+//   บนสุด  อยู่ขั้นไหนจากสี่ขั้น (ตัวเลขและช่องสี่ช่อง มองแวบเดียวรู้ว่าเหลืออีกกี่ขั้น)
+//   กลาง   ค่าที่กำลังตัดสินขั้นนี้ ตัวใหญ่สุดที่จอรับได้
+//   ล่างสุด สิ่งที่ต้องลงมือทำกับสาย ไม่ใช่สิ่งที่เครื่องกำลังทำ
+//
+// ผังพิกเซล
+//   แถว  0- 6  "CAL n/4" ซ้าย · ช่องบอกความคืบหน้าสี่ช่องขวา
+//   แถว  8     เส้นคั่น
+//   แถว  9-17  ชื่อขั้น (5x8)
+//   แถว 19-31  ค่าที่ตัดสินขั้นนี้ (7x13)
+//   แถว 33-39  สิ่งที่ต้องทำ หรือสาเหตุที่ไม่ผ่าน (4x6)
+// ---------------------------------------------------------------------------
+void drawCalibSteps(int y) {
+  // สี่ช่องบอกความคืบหน้า ทึบ = ผ่านแล้ว · กะพริบ = ขั้นที่กำลังทำ · โปร่ง = ยังไม่ถึง
+  for (int i = 0; i < 4; i++) {
+    int x = 49 + i * 6;          // ช่องสุดท้ายจบที่ x=71 พอดีขอบจอ 72 พิกเซล
+    if (i < (int)calStep)        u8g2.drawBox(x, y, 5, 5);
+    else if (i == (int)calStep)  { if ((millis() / 350) % 2 == 0) u8g2.drawBox(x, y, 5, 5);
+                                   else                          u8g2.drawFrame(x, y, 5, 5); }
+    else                          u8g2.drawFrame(x, y, 5, 5);
+  }
+}
+
+// ค่าที่ตัดสินขั้นนี้ เขียนลง buf ให้สั้นที่สุดเท่าที่ยังอ่านรู้เรื่อง
+void calBigValue(char *buf, size_t n) {
+  const iv::DetectorStatus &d = det();
+  switch (calStep) {
+    case CAL_BASELINE:
+      // ระหว่างที่เข้าเกณฑ์แล้ว นับถอยหลังให้เห็น จะได้รู้ว่าต้องนิ่งอีกนานแค่ไหน
+      if (calOkSince != 0) {
+        unsigned long left = CAL_QUIET_MS - (millis() - calOkSince);
+        snprintf(buf, n, "%lus", (unsigned long)(left / 1000 + 1));
+      } else if (sensorRaw > CAL_RAW_MAX) {
+        snprintf(buf, n, "RAW HI");      // ชนเพดาน ADC — แสงแรงเกินหรือเซนเซอร์หลุด
+      } else if (sensorRaw < CAL_RAW_MIN) {
+        snprintf(buf, n, "RAW LO");      // ต่ำผิดปกติ — สายหลุดหรือเลนส์ถูกบัง
+      } else {
+        snprintf(buf, n, "n %d", d.noiseSigma);   // เหลือกรณีเดียวคือสัญญาณรบกวนสูง
+      }
+      break;
+    case CAL_DIRECTION:
+      // ยังสรุปทิศไม่ได้ ให้บอกจำนวนหยดที่เห็นแล้ว พยาบาลจะได้รู้ว่ามันเห็นหยดอยู่
+      // ไม่ใช่ค้างเฉย ๆ · สรุปได้แล้วจึงขึ้นทิศ ด้วยถ้อยคำเดียวกับสายหลัก
+      if (calDirSign == 0) snprintf(buf, n, "%lu dr", (unsigned long)calDropsThisStep());
+      else                 snprintf(buf, n, "%s", calDirSign < 0 ? "DROP LO" : "DROP HI");
+      break;
+    case CAL_LEARN:
+      snprintf(buf, n, "%lu/%d", (unsigned long)calDropsThisStep(), CAL_LEARN_DROPS);
+      break;
+    case CAL_VERIFY:
+      snprintf(buf, n, "%lu/%d", (unsigned long)calDropsThisStep(), CAL_VERIFY_DROPS);
+      break;
+    default:
+      snprintf(buf, n, "PASS");
+      break;
+  }
+}
+
+void drawCalibScreen() {
+  char b[16];
+
+  u8g2.setFont(u8g2_font_4x6_tf);
+  if (calStep == CAL_DONE) snprintf(b, sizeof(b), "CAL OK");
+  else                     snprintf(b, sizeof(b), "CAL %d/4", (int)calStep + 1);
+  u8g2.drawStr(0, 6, b);
+  drawCalibSteps(1);
+  u8g2.drawHLine(0, 8, SCR_W);
+
+  u8g2.setFont(u8g2_font_5x8_tf);
+  if (calStep == CAL_DONE) {
+    // หน้าสรุปเอาค่า SNR ขึ้นมาแทนชื่อขั้น เพราะเป็นตัวเลขเดียวที่บอกว่า
+    // ตำแหน่งเซนเซอร์ดีพอหรือยัง ช่างจะได้เทียบกันได้ระหว่างเตียง
+    if (calResultSnrX10 >= 999) snprintf(b, sizeof(b), "SNR 99+");
+    else snprintf(b, sizeof(b), "SNR %d.%d", calResultSnrX10 / 10, calResultSnrX10 % 10);
+    drawCenteredStr(17, ADV_5X8, b);
+  } else {
+    drawCenteredStr(17, ADV_5X8, calStepName(calStep));
+  }
+
+  // ขีดใต้ชื่อขั้นเมื่อเข้าเกณฑ์แล้ว บอกว่ากำลังจะผ่าน ไม่ใช่ยังลุ้นอยู่
+  if (calOkSince != 0 && calStep != CAL_DONE) u8g2.drawHLine(6, 19, SCR_W - 12);
+
+  // ขั้นที่หมดเวลา: กลับสีทั้งแถบกลาง เพราะบนจอขนาดนี้ตัวหนังสือเล็ก ๆ ไม่มีใครเห็น
+  if (calFailed && (millis() / 400) % 2 == 0) {
+    u8g2.drawBox(0, 19, SCR_W, 13);
+    u8g2.setDrawColor(0);
+  }
+  calBigValue(b, sizeof(b));
+  u8g2.setFont(u8g2_font_7x13_tf);
+  drawCenteredStr(31, ADV_7X13, b);
+  u8g2.setDrawColor(1);
+
+  u8g2.setFont(u8g2_font_4x6_tf);
+  if (calStep == CAL_DONE) {
+    drawCenteredStr(39, ADV_4X6, "press to save");
+  } else if (calFailed) {
+    drawCenteredStr(39, ADV_4X6, calFailHint);
+  } else {
+    drawCenteredStr(39, ADV_4X6, calStepHint(calStep));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // หน้าต้อนรับตอนเปิดเครื่อง
 // ---------------------------------------------------------------------------
 void drawSplash() {
@@ -406,6 +513,7 @@ void drawScreen() {
     case MODE_ALERT:  drawAlertScreen();  u8g2.sendBuffer(); return;
     case MODE_SET_ID: drawSetIdScreen();  u8g2.sendBuffer(); return;
     case MODE_SAVER:  drawSaverScreen();  u8g2.sendBuffer(); return;
+    case MODE_CALIB:  drawCalibScreen();  u8g2.sendBuffer(); return;   // [1.2.0-C3] เพิ่ม
     default: break;
   }
 

@@ -83,6 +83,49 @@ void feedDrops(int n, unsigned long intervalMs) {
   for (int i = 0; i < n; i++) feedOneDrop(intervalMs, true);
 }
 
+
+// ---------------------------------------------------------------------------
+// เดินเวลาให้ตัวช่วยคาลิเบรต — เหมือน idleFor/feedOneDrop แต่ไม่นับเข้ายอดผู้ป่วย
+// และเรียก serviceCalibration() ทุกรอบเหมือนที่ loop() ทำจริง
+// ---------------------------------------------------------------------------
+void calIdle(unsigned long ms) {
+  unsigned long until = g_micros + ms * 1000UL;
+  while (g_micros < until) {
+    g_adc = BASE_ADC;
+    serviceDropSensor(false);
+    serviceCalibration(millis());
+    g_micros += STEP_US;
+  }
+}
+
+// พัลส์หยดหนึ่งลูกเท่านั้น ไม่รวมช่วงรอ เพื่อให้หยุดจับภาพระหว่างทางได้
+void calPulse() {
+  unsigned long t0 = g_micros;
+  while (g_micros - t0 < (unsigned long)PULSE_MS * 1000UL) {
+    float ph = (float)(g_micros - t0) / (PULSE_MS * 1000.0f);
+    g_adc = BASE_ADC - (int)(PULSE_AMP * sinf(ph * 3.14159265f));
+    serviceDropSensor(false);
+    serviceCalibration(millis());
+    g_micros += STEP_US;
+  }
+}
+
+void calDrop(unsigned long intervalMs) {
+  calPulse();
+  if (intervalMs > (unsigned long)PULSE_MS) calIdle(intervalMs - PULSE_MS);
+}
+
+// ปล่อยหยดไปเรื่อย ๆ จนขั้นที่ระบุ "เข้าเกณฑ์" แล้วหยุดทันที
+// จอยังค้างผลของขั้นนั้นอยู่ (CAL_PASS_SHOW_MS) จึงจับภาพตอนนี้ได้พอดี
+void calRunUntilPass(CalStep want, unsigned long intervalMs) {
+  unsigned long nextDrop = millis() + intervalMs;
+  unsigned long guard    = millis() + 300000UL;
+  while (calStep == want && calOkSince == 0 && millis() < guard) {
+    if (millis() >= nextDrop) { calPulse(); nextDrop = millis() + intervalMs; }
+    calIdle(20);
+  }
+}
+
 // ---------------------------------------------------------------------------
 int main(int argc, char** argv) {
   g_ops = fopen(argc > 1 ? argv[1] : "ops.txt", "w");
@@ -196,6 +239,62 @@ int main(int argc, char** argv) {
   uiMode = MODE_SAVER;
   currentFlowRate_ml_hr = 98.0f;
   drawScreen(); emitMark("18_screensaver");
+
+
+  // ---- ตัวช่วยคาลิเบรตสี่ขั้นตอน ----
+  // เดินผ่านทั้งสี่ขั้นด้วยตรรกะตัวจริง ภาพที่ได้คือสิ่งที่พยาบาลจะเห็นจริง
+  uiMode = MODE_NORMAL; currentPage = PAGE_RATE; isRunning = true;
+  enterCalibration(millis());
+
+  // ขั้น 1 ที่ยังไม่เข้าเกณฑ์ — จำลองค่าดิบชนเพดาน เหมือนเซนเซอร์หลุดหรือโดนแสงแรง
+  {
+    unsigned long until = g_micros + 800UL * 1000UL;
+    while (g_micros < until) {
+      g_adc = 4090;
+      serviceDropSensor(false);
+      serviceCalibration(millis());
+      g_micros += STEP_US;
+    }
+  }
+  drawScreen(); emitMark("19_cal1_rawhigh");       // ขั้น 1 ค่าดิบชนเพดาน ยังไม่ผ่าน
+
+  // เสียบเซนเซอร์กลับเข้าที่แล้วกดหนึ่งครั้งเพื่อลองขั้นเดิมใหม่
+  // (การกระโดดของค่าดิบตอนเสียบกลับนับเป็นเหตุการณ์หนึ่ง ขั้นนี้จึงต้องเริ่มใหม่)
+  g_adc = BASE_ADC;
+  calIdle(200);
+  calBeginStep(CAL_BASELINE, millis());
+
+  calIdle(2600);
+  drawScreen(); emitMark("20_cal1_countdown");     // เข้าเกณฑ์แล้ว นับถอยหลังให้นิ่งครบ
+
+  calIdle(2000);                                   // ครบ 3 วินาที -> ขึ้นขั้น 2
+  calIdle(400);
+  drawScreen(); emitMark("21_cal2_searching");     // ขั้น 2 เพิ่งเข้ามา ยังไม่เห็นหยดเลย
+
+  // ขั้นนี้วัดค่าดิบเอง จึงสรุปได้ภายในสามหยด ไม่ต้องรอตัวตรวจจับจับจังหวะได้
+  calRunUntilPass(CAL_DIRECTION, 1800);
+  drawScreen(); emitMark("22_cal2_direction");     // ขั้น 2 รู้ทิศสัญญาณแล้ว
+
+  calIdle(CAL_PASS_SHOW_MS + 60);                  // ขึ้นขั้น 3
+  for (int i = 0; i < 6; i++) calDrop(1800);
+  drawScreen(); emitMark("23_cal3_learn");         // ขั้น 3 กำลังเก็บรูปคลื่น
+
+  calRunUntilPass(CAL_LEARN, 1800);
+  calIdle(CAL_PASS_SHOW_MS + 60);                  // ขึ้นขั้น 4
+  for (int i = 0; i < 4; i++) calDrop(1800);
+  drawScreen(); emitMark("24_cal4_verify");        // ขั้น 4 กำลังยืนยันจังหวะ
+
+  calRunUntilPass(CAL_VERIFY, 1800);
+  calIdle(CAL_PASS_SHOW_MS + 60);                  // ผ่านครบสี่ขั้น
+  drawScreen(); emitMark("25_cal_done");           // กดหนึ่งครั้งเพื่อบันทึก
+
+  // ---- ขั้นที่หมดเวลา: ปล่อยให้ขั้น 3 รอจนครบเวลาโดยไม่มีหยดเลย ----
+  calBeginStep(CAL_LEARN, millis());
+  calIdle(calStepTimeoutMs(CAL_LEARN) + 500);
+  g_micros = (g_micros / 800000UL) * 800000UL;     // ตรึงเฟสกะพริบให้ได้ภาพกลับสี
+  drawScreen(); emitMark("26_cal_failed");
+
+  exitCalibration(false);
 
   fclose(g_ops);
   return 0;

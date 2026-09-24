@@ -1,7 +1,7 @@
 /**
  * @file      Station-C3-OLED.ino
  * @brief     เฟิร์มแวร์เครื่องประจำเตียง รุ่นบอร์ดเล็ก จอ OLED 0.42 นิ้ว
- * @version   1.1.0-C3
+ * @version   1.2.0-C3
  * @date      2026-09-23
  * @author    นายกิตติพันธ์ รัตนคร <kittiphun.rut@mcu.ac.th>
  *
@@ -25,6 +25,7 @@
  * @par Revision History
  * | Version | Date | Change |
  * |---|---|---|
+ * | 1.2.0-C3 | 2026-09-24 | เพิ่มตัวช่วยคาลิเบรตสี่ขั้นตอนที่หน้าเครื่อง วัดทิศสัญญาณเอง และบันทึกสิ่งที่เรียนรู้ลง NVS |
  * | 1.1.0-C3 | 2026-09-23 | จำนวนหยดสะสมรอดการรีบูตและไฟดับแล้ว และเพิ่มสุนัขเฝ้าบ้านกันเครื่องค้างเงียบ |
  * | 1.0.0-C3 | 2026-09-23 | สร้างสายใหม่จากไฟล์ v4.4.2 เดิม ปรับเป็น Protocol v3 ไล่หาช่องสัญญาณเอง ใช้ `drop_detector.h` ตัวเดียวกับสายหลัก และออกแบบหน้าจอ 72x40 ใหม่ทั้งหมด |
  *
@@ -65,7 +66,8 @@
  *      ที่ 20 หยด/นาที หน้าต่างนั้นมีหยดเฉลี่ยไม่ถึง 1 หยด ตัวเลขจึงกระโดด 0-48
  *      รุ่นนี้ใช้หน้าต่างสะสม 8 หยดแบบเดียวกับสายหลัก (แก้ความลำเอียงของ Jensen)
  *
- *   5) ตัวตรวจจับหยดใช้ drop_detector.h ตัวเดียวกับสายหลัก เรียนรู้เองไม่ต้องคาลิเบรต
+ *   5) ตัวตรวจจับหยดใช้ drop_detector.h ตัวเดียวกับสายหลัก เรียนรู้รูปคลื่นหยดเองได้
+ *      และตั้งแต่ v1.2.0-C3 มีตัวช่วยคาลิเบรตสี่ขั้นตอนไว้ตรวจว่าวางเซนเซอร์ถูกที่
  *      ของเดิมใช้เกณฑ์คงที่ + ฮิสเทอรีซิส ซึ่งถุงแกว่งตอนคนไข้เดินก็นับเป็นหยด
  *
  *   6) เลขเตียงตั้งที่หน้าเครื่องแล้วจำลง NVS ของเดิมต้องแก้ #define แล้วคอมไพล์ใหม่
@@ -106,50 +108,10 @@
 
 esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
 
-// เรียกได้ทุกที่ รวมถึงก่อนสมัครสมาชิก — ถ้ายังไม่ได้สมัครจะคืนค่าผิดพลาดเฉย ๆ
-inline void feedWatchdog() {
-  esp_task_wdt_reset();
-}
-
-void setupLoopWatchdog() {
-#if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-  esp_task_wdt_config_t wdtCfg = {};
-  wdtCfg.timeout_ms     = LOOP_WDT_TIMEOUT_S * 1000;
-  wdtCfg.idle_core_mask = 0;            // ไม่เฝ้างานว่าง เฝ้าเฉพาะ loop() ของเรา
-  wdtCfg.trigger_panic  = true;         // ค้างจริง = รีบูต ดีกว่าค้างเงียบต่อไป
-  // core 3.x เปิดตัวเฝ้าไว้ให้แล้วในบางการตั้งค่า จึงต้องเผื่อทางตั้งค่าใหม่ด้วย
-  if (esp_task_wdt_init(&wdtCfg) == ESP_ERR_INVALID_STATE) esp_task_wdt_reconfigure(&wdtCfg);
-#else
-  esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
-#endif
-  esp_task_wdt_add(NULL);
-}
-
-// ปิดการเฝ้าก่อนเข้าโหมดหลับ มิฉะนั้นการรอให้ปล่อยปุ่มจะถูกนับว่าค้าง
-void stopLoopWatchdog() {
-  esp_task_wdt_delete(NULL);
-}
-
-// ข้อความสั้น ๆ ไว้แสดงในหน้าเว็บและใน Serial เพื่อให้ตามรอยปัญหาในวอร์ดจริงได้
-const char* resetReasonText(esp_reset_reason_t r) {
-  switch (r) {
-    case ESP_RST_POWERON:  return "power-on";
-    case ESP_RST_EXT:      return "external";
-    case ESP_RST_SW:       return "software";
-    case ESP_RST_PANIC:    return "panic";
-    case ESP_RST_INT_WDT:  return "int-wdt";
-    case ESP_RST_TASK_WDT: return "task-wdt";
-    case ESP_RST_WDT:      return "other-wdt";
-    case ESP_RST_DEEPSLEEP:return "deep-sleep";
-    case ESP_RST_BROWNOUT: return "brownout";
-    case ESP_RST_SDIO:     return "sdio";
-    default:               return "unknown";
-  }
-}
 
 #include "drop_detector.h"   // อัลกอริทึมตรวจจับหยด (ทดสอบบน PC ได้: tools/detector-test)
 
-#define APP_VERSION         "1.1.0-C3"
+#define APP_VERSION         "1.2.0-C3"
 
 // ---------------------------------------------------------------------------
 // ขา
@@ -284,7 +246,72 @@ uint8_t  rateWinCount = 0;
 
 // ---- ปุ่มและหน้าจอ ----
 enum UiPage : uint8_t { PAGE_RATE = 0, PAGE_GTT, PAGE_VOLUME, PAGE_STATUS, PAGE_COUNT };
-enum UiMode : uint8_t { MODE_NORMAL = 0, MODE_SET_ID, MODE_ALERT, MODE_SAVER };
+enum UiMode : uint8_t { MODE_NORMAL = 0, MODE_SET_ID, MODE_ALERT, MODE_SAVER,
+                        MODE_CALIB };   // [1.2.0-C3] เพิ่ม: ตัวช่วยคาลิเบรตสี่ขั้นตอน
+
+// ---------------------------------------------------------------------------
+// ตัวช่วยคาลิเบรตสี่ขั้นตอน ([1.2.0-C3] เพิ่มทั้งหมด)
+//
+// ของเดิมบอร์ดเล็กไม่มีหน้าคาลิเบรตเลย ตัวตรวจจับเรียนรู้เองได้ก็จริง แต่
+//   1) ไม่มีใครรู้ว่าวางเซนเซอร์ถูกตำแหน่งหรือยัง จนกว่าจะรอดูว่ามันนับหรือเปล่า
+//   2) สิ่งที่เรียนรู้ไว้หายทุกครั้งที่ปิดเครื่อง เปิดมาต้องเรียนใหม่ทุกที
+// ทั้งสองข้อคือความล้มเหลวแบบเงียบ เพราะจอขึ้นว่าทำงานปกติในขณะที่ยังไม่นับอะไรเลย
+//
+// แบ่งเป็นสี่ขั้น เพราะแต่ละขั้นตอบคำถามคนละข้อ และบอกพยาบาลได้ว่าต้องไปแก้ตรงไหน
+//   1 BASELINE  ปิดโรลเลอร์แคลมป์ให้นิ่ง — เซนเซอร์เสียบแน่นไหม มีแสงกวนไหม
+//   2 DIRECTION เปิดให้หยด — หยดทำให้สัญญาณสูงขึ้นหรือต่ำลง ตัวตรวจจับหาเอง
+//   3 LEARN     เก็บรูปคลื่นจาก 10 หยด — ได้ความสูงพัลส์ ความกว้าง และ SNR
+//   4 VERIFY    นับอีก 10 หยดเพื่อยืนยันว่าจังหวะสม่ำเสมอจริง ไม่ใช่ฟลุก
+// ผ่านครบสี่ขั้นจึงบันทึกลง NVS ขั้นไหนไม่ผ่านจะบอกสาเหตุ ไม่ปล่อยให้ค้าง
+// ---------------------------------------------------------------------------
+enum CalStep : uint8_t {
+  CAL_BASELINE = 0, CAL_DIRECTION, CAL_LEARN, CAL_VERIFY, CAL_DONE, CAL_STEP_COUNT
+};
+
+#define CAL_QUIET_MS        3000     // ขั้น 1 ต้องนิ่งต่อเนื่องเท่านี้จึงผ่าน
+#define CAL_PASS_SHOW_MS    900      // ค้างผลที่ผ่านไว้ให้เห็นก่อนขึ้นขั้นถัดไป
+                                     // ขั้นที่ผ่านแล้ววาบหายไปทันที ไม่ได้บอกอะไรใคร
+#define CAL_NOISE_MAX       12       // สัญญาณรบกวนสูงกว่านี้ = วางไม่นิ่งหรือมีแสงกวน
+#define CAL_RAW_MIN         40       // ต่ำกว่านี้ = สายหลุดหรือเซนเซอร์ตัน
+#define CAL_RAW_MAX         4050     // สูงกว่านี้ = ADC ชนเพดาน ไม่เหลือช่วงให้วัดหยด
+#define CAL_LEARN_DROPS     10
+#define CAL_VERIFY_DROPS    10
+#define CAL_SNR_MIN_X10     60       // 6.0 เท่า — ต่ำกว่านี้นับพลาดง่ายเมื่อคนไข้ขยับ
+#define CAL_DIR_DROPS       3        // เห็นหยดอย่างน้อยเท่านี้ก่อนจึงสรุปทิศ
+#define CAL_DIR_MIN_DEV     40       // ส่วนเบี่ยงเบนจากเส้นฐานที่ถือว่าเป็นหยดจริง (ADC)
+#define CAL_DIR_RATIO       3        // ทางที่ชนะต้องมากกว่าอีกทางกี่เท่าจึงสรุปได้
+#define CAL_CONF_MIN        60       // ความสม่ำเสมอของช่วงหยด (%)
+// เวลารอของแต่ละขั้น — ขั้นที่ต้องรอหยดกินเวลาตามอัตราไหลของผู้ป่วย ไม่ใช่ตามเรา
+// ที่ 20 mL/h กับ drop factor 20 คือ 9 วินาทีต่อหยด สิบหยดจึงใช้เวลาราว 90 วินาที
+// ตั้งไว้ 60 วินาทีเท่ากันทุกขั้นแบบเดิมจะทำให้เตียงที่ให้ยาช้า ๆ ไม่มีวันผ่าน
+#define CAL_QUIET_TIMEOUT_MS   20000
+#define CAL_DROP_TIMEOUT_MS   180000
+
+CalStep  calStep          = CAL_BASELINE;
+unsigned long calStepStart = 0;
+unsigned long calOkSince   = 0;      // เริ่มเข้าเกณฑ์ของขั้นนี้เมื่อไร (0 = ยังไม่เข้า)
+uint32_t calDropsAtStep    = 0;      // จำนวนหยดสะสมของตัวตรวจจับตอนเข้าขั้นนี้
+uint32_t calRejectsAtStep  = 0;
+bool     calFailed         = false;  // ขั้นนี้หมดเวลาแล้ว รอให้กดลองใหม่
+const char *calFailHint    = "";
+int      calResultSnrX10   = 0;      // เก็บไว้โชว์ในหน้าสรุป
+
+// ---- ขั้นที่ 2 วัดทิศสัญญาณจากค่าดิบเอง ----
+//
+// เดิมคิดจะอ่านผลจาก detector.polarityLocked() แต่กลไกนั้นเป็นการ "ลองแล้ววัดผล"
+// ซึ่งให้เวลาทิศละ 10 วินาที ครบแล้วยังจับจังหวะหยดไม่ได้ก็สลับทิศ ที่อัตราไหล
+// ปกติกว่าจะจับจังหวะได้สม่ำเสมอสี่ช่วงต้องใช้ราว 5 หยด = เกิน 10 วินาที มันจึง
+// สลับไปทิศที่ผิดก่อน แล้ว "ล็อก" ทิศผิดนั้นไว้ ตัวเลขยังนับได้เพราะไปเกาะไหล่
+// ของพัลส์แทนตัวพัลส์ แต่ความสูงที่วัดได้เหลือครึ่งเดียว SNR จึงตกลงครึ่งหนึ่ง
+// (เจอตอนเรนเดอร์หน้าจอจำลอง ขั้น 2 ขึ้น DROP HI ทั้งที่หยดทำให้ค่าลดลง)
+//
+// ขั้นนี้จึงวัดเอง เทียบค่าดิบกับค่าเฉลี่ยของตัวเอง แล้วดูว่าเบี่ยงไปทางไหนมากกว่า
+// ได้คำตอบใน 3 หยด และไม่ขึ้นกับว่าตัวตรวจจับจะจับจังหวะได้เมื่อไร
+float    calRawMean       = 0.0f;
+uint32_t calRawN          = 0;
+int      calDipMax        = 0;       // เบี่ยงลงมากสุด (หยดทำให้ค่าลดลง)
+int      calBumpMax       = 0;       // เบี่ยงขึ้นมากสุด (หยดทำให้ค่าสูงขึ้น)
+int8_t   calDirSign       = 0;       // 0 = ยังสรุปไม่ได้ · -1 = ลดลง · +1 = สูงขึ้น
 
 UiPage   currentPage          = PAGE_RATE;
 UiMode   uiMode               = MODE_NORMAL;
@@ -308,6 +335,47 @@ void drawSplash();
 // ออด — คิวจังหวะแบบไม่บล็อก
 // ของเดิมใช้ delay() ทำให้ลูปหยุด ตรวจจับหยดไม่ทันระหว่างมีเสียง
 // ---------------------------------------------------------------------------
+// เรียกได้ทุกที่ รวมถึงก่อนสมัครสมาชิก — ถ้ายังไม่ได้สมัครจะคืนค่าผิดพลาดเฉย ๆ
+inline void feedWatchdog() {
+  esp_task_wdt_reset();
+}
+
+void setupLoopWatchdog() {
+#if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  esp_task_wdt_config_t wdtCfg = {};
+  wdtCfg.timeout_ms     = LOOP_WDT_TIMEOUT_S * 1000;
+  wdtCfg.idle_core_mask = 0;            // ไม่เฝ้างานว่าง เฝ้าเฉพาะ loop() ของเรา
+  wdtCfg.trigger_panic  = true;         // ค้างจริง = รีบูต ดีกว่าค้างเงียบต่อไป
+  // core 3.x เปิดตัวเฝ้าไว้ให้แล้วในบางการตั้งค่า จึงต้องเผื่อทางตั้งค่าใหม่ด้วย
+  if (esp_task_wdt_init(&wdtCfg) == ESP_ERR_INVALID_STATE) esp_task_wdt_reconfigure(&wdtCfg);
+#else
+  esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
+#endif
+  esp_task_wdt_add(NULL);
+}
+
+// ปิดการเฝ้าก่อนเข้าโหมดหลับ มิฉะนั้นการรอให้ปล่อยปุ่มจะถูกนับว่าค้าง
+void stopLoopWatchdog() {
+  esp_task_wdt_delete(NULL);
+}
+
+// ข้อความสั้น ๆ ไว้แสดงในหน้าเว็บและใน Serial เพื่อให้ตามรอยปัญหาในวอร์ดจริงได้
+const char* resetReasonText(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON:  return "power-on";
+    case ESP_RST_EXT:      return "external";
+    case ESP_RST_SW:       return "software";
+    case ESP_RST_PANIC:    return "panic";
+    case ESP_RST_INT_WDT:  return "int-wdt";
+    case ESP_RST_TASK_WDT: return "task-wdt";
+    case ESP_RST_WDT:      return "other-wdt";
+    case ESP_RST_DEEPSLEEP:return "deep-sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO:     return "sdio";
+    default:               return "unknown";
+  }
+}
+
 void beepPattern(uint8_t times, uint16_t onMs, uint16_t offMs) {
   beepRemaining = times;
   beepOnMs      = onMs;
@@ -539,6 +607,204 @@ const char* sensorStateWord() {
 }
 
 // ---------------------------------------------------------------------------
+// เก็บสิ่งที่เรียนรู้ไว้ใน NVS ([1.2.0-C3] เพิ่ม)
+// เปิดเครื่องมาแล้วพร้อมนับทันที ไม่ต้องรอเรียนใหม่ทุกครั้ง
+// ---------------------------------------------------------------------------
+void saveCalibration() {
+  stationPrefs.begin("c3_cal", false);
+  stationPrefs.putInt("lamp", det().learnedAmp);
+  stationPrefs.putInt("lwid", det().learnedWidthMs);
+  stationPrefs.putInt("pol",  detector.polarity());
+  stationPrefs.end();
+}
+
+void loadCalibration() {
+  stationPrefs.begin("c3_cal", true);
+  int amp = stationPrefs.getInt("lamp", 0);
+  int wid = stationPrefs.getInt("lwid", 0);
+  int pol = stationPrefs.getInt("pol",  0);
+  stationPrefs.end();
+  if (pol == 1 || pol == -1) detector.setPolarity((int8_t)pol);
+  else                       detector.setPolarityAuto();
+  detector.seedLearning(amp, wid);
+}
+
+// ---------------------------------------------------------------------------
+// ตัวช่วยคาลิเบรต — ตรรกะของทั้งสี่ขั้น ([1.2.0-C3] เพิ่มทั้งหมด)
+// ---------------------------------------------------------------------------
+const char* calStepName(CalStep s) {
+  switch (s) {
+    case CAL_BASELINE:  return "BASELINE";
+    case CAL_DIRECTION: return "DIRECTION";
+    case CAL_LEARN:     return "LEARN";
+    case CAL_VERIFY:    return "VERIFY";
+    default:            return "DONE";
+  }
+}
+
+// บรรทัดบอกว่าต้องทำอะไรกับสาย ไม่ใช่บอกว่าเครื่องกำลังทำอะไร
+const char* calStepHint(CalStep s) {
+  switch (s) {
+    case CAL_BASELINE:  return "close clamp";
+    case CAL_DIRECTION: return "open clamp";
+    case CAL_LEARN:     return "let it drip";
+    case CAL_VERIFY:    return "keep dripping";
+    default:            return "saved";
+  }
+}
+
+// เริ่มขั้นใหม่ — จำจุดตั้งต้นไว้ เพื่อให้นับเฉพาะหยดของขั้นนี้
+void calBeginStep(CalStep s, unsigned long now) {
+  // เข้าขั้นหาทิศ = เริ่มจับเวลาลองทิศใหม่ตั้งแต่จังหวะที่เปิดโรลเลอร์แคลมป์
+  //
+  // ตัวตรวจจับให้เวลาลองทิศละ 10 วินาที ครบแล้วยังจับจังหวะหยดไม่ได้ก็สลับทิศ
+  // ถ้าไม่ตั้งต้นใหม่ตรงนี้ เวลาส่วนนั้นจะถูกขั้นที่ 1 (ปิดแคลมป์ให้นิ่ง 3 วินาที)
+  // กินไปก่อน เหลือเวลาไม่พอให้เห็นหยดครบห้าหยด ตัวตรวจจับจึงสลับไปทิศที่ผิด
+  // ทั้งที่ยังไม่เคยเห็นหยดเลยสักหยด แล้วล็อกทิศผิดนั้นไว้
+  // (เจอตอนเรนเดอร์หน้าจอจำลอง ขั้นที่ 2 ขึ้นว่า DROP HI ทั้งที่หยดทำให้ค่าลดลง)
+  if (s == CAL_DIRECTION) {
+    calRawMean = (float)analogRead(SENSOR_AO_PIN);
+    calRawN = 1; calDipMax = 0; calBumpMax = 0; calDirSign = 0;
+  }
+  // เข้าขั้นเรียนรู้ = ล้างสิ่งที่เรียนไว้ตอนยังไม่รู้ทิศทิ้ง แล้วเรียนใหม่ด้วยทิศที่ถูก
+  // (detector.reset ไม่แตะทิศ จึงคงทิศที่เพิ่งวัดได้ไว้)
+  if (s == CAL_LEARN) detector.reset(analogRead(SENSOR_AO_PIN));
+  calStep         = s;
+  calStepStart    = now;
+  calOkSince      = 0;
+  calFailed       = false;
+  calFailHint     = "";
+  calDropsAtStep  = det().drops;
+  calRejectsAtStep = det().rejects;
+  screenNeedsRedraw = true;
+}
+
+uint32_t calDropsThisStep() {
+  uint32_t d = det().drops;
+  return (d >= calDropsAtStep) ? (d - calDropsAtStep) : 0;
+}
+
+void enterCalibration(unsigned long now) {
+  uiMode = MODE_CALIB;
+  // ล้างสิ่งที่เรียนไว้เดิมทิ้ง มิฉะนั้นขั้น 2 จะผ่านทันทีโดยไม่ได้วัดอะไรเลย
+  detector.reset(analogRead(SENSOR_AO_PIN));
+  detector.setPolarityAuto();
+  calResultSnrX10 = 0;
+  calBeginStep(CAL_BASELINE, now);
+  beepPattern(2, 60, 60);
+}
+
+// ออกจากตัวช่วย — ผ่านครบจึงบันทึก ออกกลางคันให้คืนค่าเดิมที่เคยบันทึกไว้
+void exitCalibration(bool save) {
+  if (save) { saveCalibration(); soundConfirm(); }
+  else      { loadCalibration(); soundClick();   }
+  uiMode = MODE_NORMAL;
+  currentPage = PAGE_RATE;
+  screenNeedsRedraw = true;
+}
+
+// เงื่อนไขผ่านของแต่ละขั้น — แยกออกมาเพื่อให้อ่านทีละข้อได้
+// คืน true เมื่อ "ขณะนี้เข้าเกณฑ์" ส่วนการนับเวลาค้างเกณฑ์อยู่ที่ผู้เรียก
+bool calStepPassing(CalStep s) {
+  const iv::DetectorStatus &d = det();
+  switch (s) {
+    case CAL_BASELINE:
+      // สายหลุดหรือ ADC ชนเพดาน = วัดอะไรไม่ได้เลย ต้องบอกก่อนไปขั้นถัดไป
+      if (sensorRaw < CAL_RAW_MIN || sensorRaw > CAL_RAW_MAX) return false;
+      if (d.noiseSigma > CAL_NOISE_MAX) return false;
+      return calDropsThisStep() == 0;          // ปิดแคลมป์แล้วต้องไม่มีหยดหลุดมา
+    case CAL_DIRECTION:
+      return calDirSign != 0 && calDropsThisStep() >= CAL_DIR_DROPS;
+    case CAL_LEARN:
+      return calDropsThisStep() >= CAL_LEARN_DROPS &&
+             d.learnedAmp > 0 && d.snrX10 >= CAL_SNR_MIN_X10;
+    case CAL_VERIFY:
+      return calDropsThisStep() >= CAL_VERIFY_DROPS &&
+             d.confidencePct >= CAL_CONF_MIN &&
+             (d.rejects - calRejectsAtStep) <= 1;
+    default:
+      return true;
+  }
+}
+
+// สาเหตุที่ขั้นนี้ไม่ผ่าน เขียนเป็นสิ่งที่พยาบาลลงมือแก้ได้ ไม่ใช่ศัพท์เทคนิค
+const char* calFailReason(CalStep s) {
+  const iv::DetectorStatus &d = det();
+  switch (s) {
+    case CAL_BASELINE:
+      if (sensorRaw < CAL_RAW_MIN)  return "check wiring";
+      if (sensorRaw > CAL_RAW_MAX)  return "too bright";
+      if (d.noiseSigma > CAL_NOISE_MAX) return "hold still";
+      return "clamp leaks";
+    case CAL_DIRECTION:
+      if (calDropsThisStep() < CAL_DIR_DROPS) return "no drops seen";
+      return "signal unclear";
+    case CAL_LEARN:
+      if (calDropsThisStep() < CAL_LEARN_DROPS) return "too few drops";
+      return "weak signal";
+    case CAL_VERIFY:
+      if (calDropsThisStep() < CAL_VERIFY_DROPS) return "too few drops";
+      return "uneven timing";
+    default: return "";
+  }
+}
+
+// เดินตรรกะของตัวช่วยหนึ่งรอบ เรียกจาก loop() เฉพาะตอนอยู่ในโหมดนี้
+// เดินตัววัดทิศหนึ่งตัวอย่าง — พัลส์หยดกินเวลาไม่ถึง 1% ของช่วงหยด
+// ค่าเฉลี่ยจึงเป็นเส้นฐานที่เชื่อถือได้ โดยไม่ต้องกรองอะไรเพิ่ม
+void calTrackDirection() {
+  if (calRawN < 4000) calRawN++;                       // ~2 วินาทีแรกเฉลี่ยไว ๆ แล้วนิ่ง
+  calRawMean += ((float)sensorRaw - calRawMean) / (float)calRawN;
+
+  int dev = sensorRaw - (int)calRawMean;
+  if (dev < 0 && -dev > calDipMax)  calDipMax  = -dev;
+  if (dev > 0 &&  dev > calBumpMax) calBumpMax =  dev;
+
+  int big   = (calDipMax > calBumpMax) ? calDipMax  : calBumpMax;
+  int small = (calDipMax > calBumpMax) ? calBumpMax : calDipMax;
+  if (big < CAL_DIR_MIN_DEV) return;                   // ยังไม่เห็นอะไรที่ใหญ่พอ
+  if (big < small * CAL_DIR_RATIO) return;             // สองทางพอกัน = สรุปไม่ได้
+  calDirSign = (calDipMax > calBumpMax) ? -1 : 1;
+}
+
+uint32_t calStepTimeoutMs(CalStep s) {
+  return (s == CAL_BASELINE) ? CAL_QUIET_TIMEOUT_MS : CAL_DROP_TIMEOUT_MS;
+}
+
+void serviceCalibration(unsigned long now) {
+  if (calStep == CAL_DONE || calFailed) return;
+  if (calStep == CAL_DIRECTION) calTrackDirection();
+
+  if (calStepPassing(calStep)) {
+    if (calOkSince == 0) calOkSince = now;
+    // ขั้นแรกต้องนิ่งค้างไว้จริง ๆ ขั้นอื่นค้างแค่พอให้เห็นผลที่เพิ่งผ่าน
+    unsigned long need = (calStep == CAL_BASELINE) ? CAL_QUIET_MS : CAL_PASS_SHOW_MS;
+    if (now - calOkSince >= need) {
+      // ยืนยันทิศให้ตัวตรวจจับตรง ๆ (setPolarity ปิดโหมดลองผิดลองถูกไปในตัว)
+      if (calStep == CAL_DIRECTION) detector.setPolarity(calDirSign);
+      if (calStep == CAL_LEARN) calResultSnrX10 = det().snrX10;
+      if (calStep == CAL_VERIFY) {
+        calStep = CAL_DONE;
+        screenNeedsRedraw = true;
+        beepPattern(3, 60, 60);
+        return;
+      }
+      calBeginStep((CalStep)(calStep + 1), now);
+      beepPattern(1, 40, 0);
+    }
+    return;
+  }
+
+  calOkSince = 0;
+  if (now - calStepStart >= calStepTimeoutMs(calStep)) {
+    calFailed   = true;
+    calFailHint = calFailReason(calStep);
+    screenNeedsRedraw = true;
+    beepPattern(2, 200, 120);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // สถานะที่จอต้องรู้
 // ---------------------------------------------------------------------------
 bool isHostOnline() { return lastHostSyncTime > 0 && (millis() - lastHostSyncTime) < HOST_TIMEOUT_MS; }
@@ -635,11 +901,17 @@ void manageChannelHunting(unsigned long now) {
 }
 
 void sendToHost() {
+  // [1.2.0-C3] แก้: ระหว่างคาลิเบรตต้องรายงานว่า "ไม่ได้นับอยู่"
+  //
+  // ขั้นที่ 1 ให้ปิดโรลเลอร์แคลมป์ ถ้ายังบอก Host ว่ากำลังให้น้ำเกลืออยู่ Host จะ
+  // เห็นว่าหยดหยุดไปแล้วปลุกเสียงเตือน "สายพับ" ขึ้นมาทั้งวอร์ด ทั้งที่พยาบาล
+  // กำลังยืนปรับเซนเซอร์อยู่ตรงนั้นเอง ใช้ความหมายเดิมของโปรโตคอล ไม่ต้องเพิ่มรหัสใหม่
+  bool countingNow       = isRunning && uiMode != MODE_CALIB;
   myData.stationId       = stationId;
-  myData.isRunning       = isRunning ? 1 : 0;
+  myData.isRunning       = countingNow ? 1 : 0;
   myData.totalDrops      = totalDrops;
-  myData.periodDrops     = isRunning ? periodDropsCounter : 0;
-  myData.flowRateHr      = isRunning ? currentFlowRate_ml_hr : 0.0f;
+  myData.periodDrops     = countingNow ? periodDropsCounter : 0;
+  myData.flowRateHr      = countingNow ? currentFlowRate_ml_hr : 0.0f;
   myData.msSinceLastDrop = msSinceLastDrop();
   myData.batteryVolts    = batteryVolts;
   myData.flags           = nearEndAckRequest ? 0x01 : 0x00;
@@ -681,7 +953,7 @@ void handleButton(unsigned long now) {
   if (reading == LOW) {
     unsigned long held = now - btnPressStart;
 
-    if (held >= 4000 && !veryLongHandled) {
+    if (held >= 4000 && !veryLongHandled && uiMode != MODE_CALIB) {   // [1.2.0-C3] แก้
       veryLongHandled = true;
       longHandled     = true;
       clickCount      = 0;
@@ -699,6 +971,8 @@ void handleButton(unsigned long now) {
     else if (held >= 1500 && !longHandled && !veryLongHandled && uiMode != MODE_SET_ID) {
       longHandled = true;
       clickCount  = 0;
+      // [1.2.0-C3] เพิ่ม: อยู่ในตัวช่วยคาลิเบรต = ออกโดยไม่บันทึก คืนค่าที่ใช้อยู่เดิม
+      if (uiMode == MODE_CALIB) { exitCalibration(false); lastUserActivity = now; return; }
       currentPage = PAGE_RATE;
       uiMode      = MODE_NORMAL;
       soundClick();
@@ -716,6 +990,17 @@ void handleButton(unsigned long now) {
 
   if (clickCount > 0 && (now - lastReleaseTime > 320)) {
     lastUserActivity = now;
+    // [1.2.0-C3] เพิ่ม: ปุ่มในตัวช่วยคาลิเบรต
+    //   ขั้นที่ไม่ผ่าน -> กดเพื่อลองขั้นเดิมใหม่ (แก้สายแล้วไม่ต้องเริ่มจากขั้นแรก)
+    //   หน้าสรุป      -> กดเพื่อบันทึกแล้วออก
+    if (uiMode == MODE_CALIB) {
+      if (calStep == CAL_DONE)   exitCalibration(true);
+      else if (calFailed)      { calBeginStep(calStep, now); soundClick(); }
+      else                       soundClick();
+      clickCount = 0;
+      screenNeedsRedraw = true;
+      return;
+    }
     if (uiMode == MODE_SET_ID) {
       stationId = (stationId % 8) + 1;             // กดสั้นในหน้าตั้งเลข = เพิ่มเลขเตียง
       tallyWriteNvs(totalDrops, stationId);        // [1.1.0-C3] เพิ่ม: ย้ายยอดสะสมไปใต้เลขเตียงใหม่
@@ -726,7 +1011,9 @@ void handleButton(unsigned long now) {
     } else if (uiMode == MODE_ALERT && uiAlertCode == ALERT_NEAR_END) {
       nearEndAckRequest = true;                     // รับทราบที่เตียง ส่งกลับ Host
       soundConfirm();
-    } else if (clickCount >= 2) {
+    } else if (clickCount >= 3) {
+      enterCalibration(now);       // [1.2.0-C3] เพิ่ม: กดสั้นสามครั้ง = เปิดตัวช่วยคาลิเบรต
+    } else if (clickCount == 2) {
       togglePause();
     } else {
       currentPage = (UiPage)((currentPage + 1) % PAGE_COUNT);
@@ -744,6 +1031,7 @@ void handleButton(unsigned long now) {
 // ---------------------------------------------------------------------------
 void serviceUiMode(unsigned long now) {
   if (uiMode == MODE_SET_ID) return;                // กำลังตั้งค่า อย่าเด้งไปไหน
+  if (uiMode == MODE_CALIB)  return;                // [1.2.0-C3] เพิ่ม: กำลังคาลิเบรต
 
   uint8_t a = effectiveAlert();
 
@@ -817,6 +1105,7 @@ void setup() {
   iv::DetectorConfig dcfg;
   detector.begin(dcfg);
   detector.reset(analogRead(SENSOR_AO_PIN));
+  loadCalibration();   // [1.2.0-C3] เพิ่ม: เอาค่าที่เคยคาลิเบรตไว้กลับมา พร้อมนับทันที
 
   // ---- วิทยุ ----
   WiFi.mode(WIFI_STA);
@@ -852,7 +1141,9 @@ void loop() {
   unsigned long now = millis();
 
   // อ่านเซนเซอร์ให้ถี่ที่สุด — ตัวตรวจจับจัดจังหวะตัวอย่างเอง
-  serviceDropSensor(isRunning && uiMode != MODE_SET_ID);
+  // [1.2.0-C3] แก้: ระหว่างคาลิเบรตยังต้องอ่านเซนเซอร์ แต่ห้ามนับเข้ายอดของผู้ป่วย
+  serviceDropSensor(isRunning && uiMode != MODE_SET_ID && uiMode != MODE_CALIB);
+  if (uiMode == MODE_CALIB) serviceCalibration(now);
 
   serviceBeep(now);
   handleButton(now);
